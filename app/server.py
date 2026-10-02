@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -341,20 +341,34 @@ DEFAULT_SETTINGS = {
 }
 SETTINGS = dict(DEFAULT_SETTINGS)
 SECRET_KEYS = ("pushover_user", "pushover_token")
+# values set via container environment (Unraid template) win over the UI and are shown read-only
+ENV_SETTINGS = {"pushover_user": "PUSHOVER_USER", "pushover_token": "PUSHOVER_TOKEN", "webui_url": "WEBUI_URL"}
+LOCKED = set()
 
 
 def load_settings():
+    stored = {}
     try:
         if os.path.exists(SETTINGS_FILE):
-            SETTINGS.update({k: v for k, v in json.load(open(SETTINGS_FILE)).items() if k in DEFAULT_SETTINGS})
+            stored = {k: v for k, v in json.load(open(SETTINGS_FILE)).items() if k in DEFAULT_SETTINGS}
+            SETTINGS.update(stored)
     except Exception:
         LOG.exception("could not read settings.json")
+    for key, env in ENV_SETTINGS.items():
+        val = (ENV(env) or "").strip()
+        if val:
+            SETTINGS[key] = val
+            LOCKED.add(key)
+    if {"pushover_user", "pushover_token"} <= LOCKED and "pushover_enabled" not in stored:
+        SETTINGS["pushover_enabled"] = True
+    if LOCKED:
+        LOG.info("settings from environment: %s", ", ".join(sorted(ENV_SETTINGS[k] for k in LOCKED)))
 
 
 def save_settings():
     tmp = SETTINGS_FILE + ".tmp"
     with open(tmp, "w") as f:
-        json.dump(SETTINGS, f, indent=2)
+        json.dump({k: v for k, v in SETTINGS.items() if k not in LOCKED}, f, indent=2)
     os.replace(tmp, SETTINGS_FILE)
     try:
         os.chmod(SETTINGS_FILE, 0o600)
@@ -370,12 +384,13 @@ def public_settings():
     d = dict(SETTINGS)
     for k in SECRET_KEYS:
         d[k] = mask(d[k])
+    d["locked"] = sorted(LOCKED)
     return d
 
 
 def update_settings(b):
     for k, default in DEFAULT_SETTINGS.items():
-        if k not in b:
+        if k not in b or k in LOCKED:
             continue
         v = b[k]
         if k in SECRET_KEYS:

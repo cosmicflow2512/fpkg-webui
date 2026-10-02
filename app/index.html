@@ -195,6 +195,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 
       <h3>Pushover</h3>
       <div class="opts"><label><input type="checkbox" id="s-pushover_enabled"><span>Benachrichtigungen per Pushover</span></label></div>
+      <div class="hint" id="s-envhint"></div>
       <div class="grid">
         <div><label class="f">User Key</label><input id="s-pushover_user" type="text" autocomplete="off"></div>
         <div><label class="f">API Token (App)</label><input id="s-pushover_token" type="text" autocomplete="off"></div>
@@ -443,10 +444,10 @@ $('#g-selftest').onclick = async () => {
 // ---------- settings
 const SKEYS = ['overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','watch_stable','watch_interval','watch_preset','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting'];
 async function loadSettings(){
-  try{ const s = await api('/api/settings'); SKEYS.forEach(k=>{ const e=$('#s-'+k); if(!e) return; if(e.type==='checkbox') e.checked=!!s[k]; else e.value=s[k]??''; }); }catch(e){ $('#s-msg').textContent=e.message; }
+  try{ const s = await api('/api/settings'); const L=s.locked||[]; SKEYS.forEach(k=>{ const e=$('#s-'+k); if(!e) return; if(e.type==='checkbox') e.checked=!!s[k]; else e.value=s[k]??''; e.disabled=L.includes(k); if(L.includes(k)) e.title='aus dem Unraid-Template (Umgebungsvariable)'; }); $('#s-envhint').textContent = L.length ? 'Gesperrte Felder kommen aus dem Unraid-Template: '+L.map(k=>({pushover_user:'PUSHOVER_USER',pushover_token:'PUSHOVER_TOKEN',webui_url:'WEBUI_URL'})[k]).join(', ') : ''; }catch(e){ $('#s-msg').textContent=e.message; }
   loadWatch();
 }
-function readSettings(){ const o={}; SKEYS.forEach(k=>{ const e=$('#s-'+k); if(e) o[k]= e.type==='checkbox'?e.checked:e.value; }); return o; }
+function readSettings(){ const o={}; SKEYS.forEach(k=>{ const e=$('#s-'+k); if(e && !e.disabled) o[k]= e.type==='checkbox'?e.checked:e.value; }); return o; }
 $('#s-save').onclick = async () => { const m=$('#s-msg'); try{ await post('/api/settings', readSettings()); m.className='hint ok'; m.textContent='gespeichert'; loadSettings(); }catch(e){ m.className='hint err'; m.textContent=e.message; } };
 $('#s-test').onclick = async () => { const m=$('#s-msg'); m.className='hint'; m.textContent='sende …'; try{ await post('/api/settings', readSettings()); await post('/api/settings/pushover-test'); m.className='hint ok'; m.textContent='Testnachricht gesendet'; }catch(e){ m.className='hint err'; m.textContent='Pushover: '+e.message; } };
 async function loadWatch(){

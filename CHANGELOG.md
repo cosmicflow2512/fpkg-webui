@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.1.1 – 2026-10-02
+- Pushover über Template-Variablen `PUSHOVER_USER`, `PUSHOVER_TOKEN` (maskiert) und `WEBUI_URL`; gesetzte Werte haben Vorrang und sind in der WebUI gesperrt
+
 ## 1.1.0 – 2026-10-02
 - Watch-Ordner: fertige Archive/Images/.pkg/Ordner im Eingang werden automatisch eingereiht (Stillstand-Erkennung, `.part`/`_UNPACK_` werden übersprungen), Fix wird über die Title-ID im Namen aus dem Fix-Ordner zugeordnet, Quelle danach nach `_erledigt`
 - Pushover-Benachrichtigung bei fertig, Fehler (Priorität hoch) und „wartet auf Freigabe“, mit Test-Knopf

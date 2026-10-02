@@ -65,7 +65,8 @@ Pfade per Umgebungsvariablen: `SHARES="/mnt/user/NZB:NZB /mnt/user/isos:isos" OU
 | `/work` | entpackte Spiele und Build-Temp – braucht ca. das 1,6-fache der entpackten Größe. Am schnellsten direkt auf einem NVMe-Pool (`/mnt/<pool>/…`), nicht über `/mnt/user` und nicht auf dem Array mit Parität |
 | `/config` | Auftragsliste, Logs (`logs/server.log`, `logs/jobs/*.log`) |
 
-Variablen: `PUID`/`PGID` (Besitzer der fertigen Pakete, Standard 99/100), `LOG_LEVEL` (`INFO`/`DEBUG`),
+Variablen: `PUSHOVER_USER`, `PUSHOVER_TOKEN`, `WEBUI_URL` (haben Vorrang vor der WebUI),
+`PUID`/`PGID` (Besitzer der fertigen Pakete, Standard 99/100), `LOG_LEVEL` (`INFO`/`DEBUG`),
 `BROWSE_ROOTS` (Standard `/shares/*:/output:/work`).
 
 ## Einstellungen
