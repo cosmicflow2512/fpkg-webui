@@ -71,6 +71,22 @@ def test_progress():
     check("phase parsed", j.prog["phase"] == "Done")
 
 
+def test_checksums():
+    d = tempfile.mkdtemp()
+    touch(d, "a.7z", "b.rar", "c.pkg")
+    with open(os.path.join(d, "SHA-256.txt"), "w") as f:
+        f.write("ab" * 32 + "\n")
+    with open(os.path.join(d, "x.sfv"), "w") as f:
+        f.write("; comment\nb.rar 1a2b3c4d\n")
+    with open(os.path.join(d, "SHA256SUMS"), "w") as f:
+        f.write("cd" * 32 + "  *c.pkg\nSHA256 (a.7z) = " + "ef" * 32 + "\n")
+    sums = server.find_checksums(os.path.join(d, "a.7z"))
+    check("bare hash -> '*'", sums.get("*", (None,))[0] == "sha256")
+    check("sfv entry", sums.get("b.rar", (None,))[0] == "crc32")
+    check("sha256sum entry", sums.get("c.pkg", (None, ""))[1] == "cd" * 32)
+    check("bsd entry", sums.get("a.7z", (None, ""))[1] == "ef" * 32)
+
+
 def make_mbr_wrapped(src_img, dst):
     data = open(src_img, "rb").read()
     mbr = bytearray(512)
@@ -143,6 +159,7 @@ def test_exfat():
 if __name__ == "__main__":
     test_volumes()
     test_progress()
+    test_checksums()
     test_exfat()
     print(f"\n{len(FAILS)} Fehler" if FAILS else "\nalle Tests ok")
     sys.exit(1 if FAILS else 0)

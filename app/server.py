@@ -4,6 +4,7 @@
 Python stdlib only. One build at a time, further jobs wait in a queue.
 """
 import glob
+import hashlib
 import io
 import json
 import logging
@@ -19,13 +20,16 @@ import threading
 import time
 import traceback
 import uuid
+import urllib.parse
+import urllib.request
 import zipfile
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.1.0"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -312,6 +316,425 @@ def chown_tree(p):
         pass
 
 
+# ---------------------------------------------------------------- settings
+SETTINGS_FILE = os.path.join(DATA, "settings.json")
+DEFAULT_SETTINGS = {
+    "overlap": True,
+    "checksum": True,
+    "watch_enabled": False,
+    "watch_dir": "/shares/NZB/fpkg-inbox",
+    "watch_fix_dir": "/shares/NZB/fpkg-fixes",
+    "watch_stable": 120,
+    "watch_interval": 30,
+    "watch_preset": "standard",
+    "watch_confirm": False,
+    "watch_cleanup": True,
+    "watch_delete_archive": False,
+    "watch_after": "move",
+    "pushover_enabled": False,
+    "pushover_user": "",
+    "pushover_token": "",
+    "notify_done": True,
+    "notify_failed": True,
+    "notify_waiting": True,
+    "webui_url": "",
+}
+SETTINGS = dict(DEFAULT_SETTINGS)
+SECRET_KEYS = ("pushover_user", "pushover_token")
+
+
+def load_settings():
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            SETTINGS.update({k: v for k, v in json.load(open(SETTINGS_FILE)).items() if k in DEFAULT_SETTINGS})
+    except Exception:
+        LOG.exception("could not read settings.json")
+
+
+def save_settings():
+    tmp = SETTINGS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(SETTINGS, f, indent=2)
+    os.replace(tmp, SETTINGS_FILE)
+    try:
+        os.chmod(SETTINGS_FILE, 0o600)
+    except OSError:
+        pass
+
+
+def mask(v):
+    return ("••••" + v[-4:]) if v else ""
+
+
+def public_settings():
+    d = dict(SETTINGS)
+    for k in SECRET_KEYS:
+        d[k] = mask(d[k])
+    return d
+
+
+def update_settings(b):
+    for k, default in DEFAULT_SETTINGS.items():
+        if k not in b:
+            continue
+        v = b[k]
+        if k in SECRET_KEYS:
+            v = (v or "").strip()
+            if v.startswith("••••"):
+                continue
+        elif isinstance(default, bool):
+            v = bool(v)
+        elif isinstance(default, int):
+            v = max(5, int(v))
+        else:
+            v = str(v or "").strip()
+        if k in ("watch_dir", "watch_fix_dir") and v:
+            v = safe_path(v, must_exist=False)
+        if k == "watch_preset" and v not in ("fast", "standard", "smallest"):
+            v = "standard"
+        if k == "watch_after" and v not in ("move", "keep"):
+            v = "move"
+        SETTINGS[k] = v
+    save_settings()
+    LOG.info("settings saved (watch=%s overlap=%s pushover=%s)", SETTINGS["watch_enabled"], SETTINGS["overlap"],
+             SETTINGS["pushover_enabled"])
+
+
+# ---------------------------------------------------------------- space accounting
+def _dev(p):
+    while p and not os.path.exists(p):
+        p = os.path.dirname(p)
+    try:
+        return os.stat(p).st_dev
+    except OSError:
+        return None
+
+
+def free_for(path, me=None):
+    """Free bytes on path minus space other active jobs on the same filesystem still expect to use."""
+    free = disk(path)["free"]
+    if free is None:
+        return None
+    dev = _dev(path)
+    held = sum(j.reserve or 0 for j in list(JOBS.values())
+               if j is not me and j.status in ("running", "waiting", "ready") and _dev(j.work) == dev)
+    return max(0, free - held)
+
+
+# ---------------------------------------------------------------- checksums
+RX_HEX = re.compile(r"^[0-9a-fA-F]+$")
+ALGO_BY_LEN = {64: "sha256", 32: "md5", 8: "crc32"}
+
+
+def find_checksums(src):
+    """Checksum entries next to src: {lower(filename) or '*': (algo, hash, origin_file)}."""
+    d = os.path.dirname(src)
+    out = {}
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return out
+    for n in sorted(names):
+        low = n.lower()
+        if not (low.endswith((".sfv", ".sha256", ".sha256sum", ".md5", ".sha"))
+                or low.startswith(("sha256sums", "sha-256", "sha256", "md5sums", "checksum"))):
+            continue
+        path = os.path.join(d, n)
+        try:
+            if os.path.getsize(path) > 1_000_000:
+                continue
+            text = open(path, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.strip().startswith((";", "#"))]
+        for ln in lines:
+            m = re.match(r"^(SHA256|MD5)\s*\((.+)\)\s*=\s*([0-9a-fA-F]+)$", ln)        # BSD style
+            if m:
+                out[os.path.basename(m.group(2)).lower()] = (m.group(1).lower(), m.group(3), path)
+                continue
+            m = re.match(r"^([0-9a-fA-F]{32}|[0-9a-fA-F]{64})\s+\*?(.+)$", ln)        # sha256sum / md5sum
+            if m:
+                out[os.path.basename(m.group(2).strip()).lower()] = (ALGO_BY_LEN[len(m.group(1))], m.group(1), path)
+                continue
+            m = re.match(r"^(.+?)\s+([0-9a-fA-F]{8})$", ln)                           # sfv
+            if m and low.endswith(".sfv"):
+                out[os.path.basename(m.group(1).strip()).lower()] = ("crc32", m.group(2), path)
+                continue
+            tok = ln.split()[0] if ln.split() else ""
+            if len(lines) == 1 and RX_HEX.match(tok) and len(tok) in (32, 64):          # bare hash
+                out.setdefault("*", (ALGO_BY_LEN[len(tok)], tok, path))
+    return out
+
+
+# ---------------------------------------------------------------- notifications
+PUSHOVER_URL = "https://api.pushover.net/1/messages.json"
+
+
+def send_pushover(title, message, priority=0, url=None):
+    if not (SETTINGS["pushover_user"] and SETTINGS["pushover_token"]):
+        return False, "User-Key oder API-Token fehlt"
+    data = {"token": SETTINGS["pushover_token"], "user": SETTINGS["pushover_user"],
+            "title": title[:250], "message": message[:1024], "priority": str(priority)}
+    if url:
+        data["url"], data["url_title"] = url[:512], "FPKG Builder öffnen"
+    req = urllib.request.Request(PUSHOVER_URL, data=urllib.parse.urlencode(data).encode(), method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            body = r.read().decode("utf-8", "replace")
+            ok = json.loads(body).get("status") == 1
+            return ok, body
+    except urllib.error.HTTPError as e:
+        return False, f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:300]}"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+def notify(event, job):
+    if not SETTINGS["pushover_enabled"] or not SETTINGS.get("notify_" + event):
+        return
+    src = os.path.basename(job.params["source"].rstrip("/"))
+    r = job.result or {}
+    if event == "done":
+        title = f"FPKG fertig: {r.get('title') or src}"
+        lines = [f"Version {r.get('version', '?')} · FW {r.get('fw', '?')} · {human(r.get('size'))}",
+                 f"Dauer {fmt_eta(r.get('duration'))}" if r.get("duration") else "",
+                 os.path.basename(r.get("pkg", ""))]
+        if job.warnings:
+            lines.append("Warnungen: " + " | ".join(job.warnings)[:400])
+        prio = 0
+    elif event == "failed":
+        title, lines, prio = f"FPKG Fehler: {src}", [job.error or "unbekannter Fehler", f"Schritt: {job.step}"], 1
+    else:
+        title, lines, prio = f"FPKG wartet auf Freigabe: {src}", ["Erkennung prüfen und in der WebUI 'Bauen' klicken."], 0
+    msg = "\n".join(x for x in lines if x)
+
+    def _send():
+        ok, info = send_pushover(title, msg, prio, SETTINGS.get("webui_url") or None)
+        (LOG.info if ok else LOG.warning)("pushover %s job %s: %s", event, job.id, "ok" if ok else info)
+    threading.Thread(target=_send, daemon=True).start()
+
+
+# ---------------------------------------------------------------- watch folder
+WATCH = {"last_scan": None, "error": None, "items": {}}
+WATCH_FILE = os.path.join(DATA, "watch_state.json")
+WATCH_PROCESSED = {}
+WATCH_LOCK = threading.Lock()
+WATCH_KICK = threading.Event()
+INCOMPLETE = (".part", ".tmp", ".crdownload", ".!qb", ".jdtmp", ".download", ".partial")
+RX_TITLE = re.compile(r"(PPSA|PPSB|CUSA)\d{5}", re.I)
+
+
+def load_watch():
+    try:
+        if os.path.exists(WATCH_FILE):
+            WATCH_PROCESSED.update(json.load(open(WATCH_FILE)))
+    except Exception:
+        LOG.exception("could not read watch_state.json")
+
+
+def save_watch():
+    try:
+        tmp = WATCH_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(WATCH_PROCESSED, f)
+        os.replace(tmp, WATCH_FILE)
+    except Exception:
+        LOG.exception("could not write watch_state.json")
+
+
+def watch_candidates(wdir, fixdir):
+    """Top-level entries of the inbox -> {key: [paths belonging to it]}."""
+    groups = {}
+    for e in sorted(os.scandir(wdir), key=lambda x: x.name.lower()):
+        n = e.name
+        if n.startswith((".", "_")) or n in JUNK or (fixdir and os.path.realpath(e.path) == os.path.realpath(fixdir)):
+            continue
+        if e.is_dir():
+            groups[os.path.realpath(e.path)] = [e.path]
+            continue
+        ext = lower_ext(n)
+        if ext in ARCHIVES:
+            vols = archive_volumes(e.path)
+            first = os.path.realpath(first_volume(vols))
+            groups.setdefault(first, sorted(set(vols)))
+        elif ext in IMAGES or ext == ".pkg":
+            groups[os.path.realpath(e.path)] = [e.path]
+        elif n.lower().endswith(INCOMPLETE):
+            base = re.sub(r"\.(part|tmp|crdownload|!qb|jdtmp|download|partial)$", "", n, flags=re.I)
+            groups.setdefault("incomplete:" + base, [e.path])
+    return groups
+
+
+def group_signature(paths):
+    size, mt, count, incomplete = 0, 0.0, 0, False
+    for p in paths:
+        if os.path.isdir(p):
+            for cur, _, files in os.walk(p):
+                for f in files:
+                    fp = os.path.join(cur, f)
+                    try:
+                        st = os.stat(fp)
+                    except OSError:
+                        continue
+                    size += st.st_size
+                    mt = max(mt, st.st_mtime)
+                    count += 1
+                    if f.lower().endswith(INCOMPLETE):
+                        incomplete = True
+        else:
+            try:
+                st = os.stat(p)
+                size += st.st_size
+                mt = max(mt, st.st_mtime)
+                count += 1
+            except OSError:
+                incomplete = True
+            if p.lower().endswith(INCOMPLETE):
+                incomplete = True
+    return (size, round(mt, 1), count), incomplete
+
+
+def title_id_for(path, kind, real):
+    m = RX_TITLE.search(os.path.basename(path.rstrip("/"))) or RX_TITLE.search(real)
+    if m:
+        return m.group(0).upper()
+    try:
+        if kind in ("folder", "exfat", "ffpfsc", "ffpkg"):
+            _, out = cmd_out([CLI, "inspect", real], 120)
+        elif kind == "pkg":
+            _, out = cmd_out([CLI, "pkg-info", real], 120)
+        else:
+            return None
+        m = RX_TITLE.search(out)
+        return m.group(0).upper() if m else None
+    except Exception:
+        return None
+
+
+def find_fix(fixdir, tid):
+    if not (fixdir and tid and os.path.isdir(fixdir)):
+        return None
+    hits = []
+    for e in os.scandir(fixdir):
+        if e.name.startswith(".") or tid.lower() not in e.name.lower():
+            continue
+        if e.is_dir() or lower_ext(e.name) in ARCHIVES:
+            if e.is_file() and lower_ext(e.name) in ARCHIVES:
+                fv = first_volume(archive_volumes(e.path))
+                if os.path.realpath(fv) != os.path.realpath(e.path):
+                    continue
+            hits.append((e.stat().st_mtime, e.path))
+    return max(hits)[1] if hits else None
+
+
+def watch_scan():
+    if not SETTINGS["watch_enabled"]:
+        WATCH["error"] = None
+        return
+    try:
+        wdir = safe_path(SETTINGS["watch_dir"], must_exist=False)
+        fixdir = safe_path(SETTINGS["watch_fix_dir"], must_exist=False) if SETTINGS["watch_fix_dir"] else None
+    except JobError as e:
+        WATCH["error"] = str(e)
+        return
+    os.makedirs(wdir, exist_ok=True)
+    if fixdir:
+        os.makedirs(fixdir, exist_ok=True)
+    WATCH["error"] = None
+    now = time.time()
+    groups = watch_candidates(wdir, fixdir)
+    stable_s = SETTINGS["watch_stable"]
+    with WATCH_LOCK:
+        items = WATCH["items"]
+        for key in list(items):
+            if key not in groups:
+                items.pop(key)
+        for key, paths in groups.items():
+            name = os.path.basename(key.split(":", 1)[-1])
+            it = items.setdefault(key, {"name": name, "sig": None, "since": now, "state": "wartet"})
+            if key in WATCH_PROCESSED:
+                it.update(state="verarbeitet", job=WATCH_PROCESSED[key].get("job"))
+                continue
+            if key.startswith("incomplete:"):
+                it.update(state="lädt noch")
+                continue
+            sig, incomplete = group_signature(paths)
+            if sig != it["sig"] or incomplete:
+                it.update(sig=sig, since=now, state="lädt noch" if incomplete else "wartet auf Stillstand")
+                continue
+            if now - it["since"] < stable_s or now - sig[1] < stable_s:
+                it["state"] = f"stabil in {int(max(stable_s - (now - it['since']), stable_s - (now - sig[1])))} s"
+                continue
+            try:
+                kind, real = classify(key)
+            except JobError as e:
+                it.update(state="ignoriert: " + str(e)[:120])
+                WATCH_PROCESSED[key] = {"job": None, "time": now, "ignored": str(e)[:200]}
+                save_watch()
+                LOG.info("watch: ignored %s (%s)", key, e)
+                continue
+            tid = title_id_for(key, kind, real)
+            fix = find_fix(fixdir, tid)
+            params = {
+                "source": key, "fix": fix, "out": safe_path(DEF_OUT, must_exist=False),
+                "work": safe_path(DEF_WORK, must_exist=False), "preset": SETTINGS["watch_preset"],
+                "keep_ampr": False, "keep_dump": False, "confirm": SETTINGS["watch_confirm"],
+                "cleanup": SETTINGS["watch_cleanup"],
+                "delete_archive": SETTINGS["watch_delete_archive"] and kind == "archive",
+                "checksum": SETTINGS["checksum"], "origin": "watch", "watch_items": paths, "title_id": tid,
+            }
+            j = enqueue(params)
+            WATCH_PROCESSED[key] = {"job": j.id, "time": now, "title_id": tid, "fix": fix}
+            save_watch()
+            it.update(state="eingereiht", job=j.id)
+            LOG.info("watch: queued %s as job %s (title=%s fix=%s)", key, j.id, tid, fix)
+            j.log(f"Automatisch aus dem Watch-Ordner eingereiht · Title-ID {tid or '?'} · Fix: {fix or 'keiner gefunden'}")
+    WATCH["last_scan"] = now
+
+
+def watch_after(job):
+    if job.origin != "watch" or job.status != "done" or SETTINGS["watch_after"] != "move":
+        return
+    try:
+        wdir = safe_path(SETTINGS["watch_dir"])
+    except JobError:
+        return
+    dest = os.path.join(wdir, "_erledigt")
+    os.makedirs(dest, exist_ok=True)
+    for p in job.params.get("watch_items") or []:
+        if os.path.exists(p):
+            try:
+                shutil.move(p, os.path.join(dest, os.path.basename(p)))
+                job.log(f"Quelle verschoben nach {dest}: {os.path.basename(p)}")
+            except OSError as e:
+                job.warn(f"Konnte {p} nicht nach _erledigt verschieben: {e}")
+
+
+def watcher():
+    while True:
+        try:
+            watch_scan()
+        except Exception as e:
+            WATCH["error"] = f"{type(e).__name__}: {e}"
+            LOG.exception("watch scan failed")
+        WATCH_KICK.wait(max(5, SETTINGS["watch_interval"]))
+        WATCH_KICK.clear()
+
+
+def enqueue(params):
+    os.makedirs(params["out"], exist_ok=True)
+    os.makedirs(params["work"], exist_ok=True)
+    j = Job(params)
+    with QUEUE_CV:
+        JOBS[j.id] = j
+        ORDER.append(j.id)
+        QUEUE_CV.notify_all()
+    LOG.info("job %s: queued (%s) %s", j.id, params.get("origin", "manual"),
+             json.dumps({k: v for k, v in params.items() if k != "watch_items"}, ensure_ascii=False))
+    save_jobs()
+    return j
+
+
 # ---------------------------------------------------------------- progress parsing
 RX_BAR = re.compile(r"^\[[^\]]*\]\s+(\d+(?:\.\d+)?)%\s*·\s*(.*)$")
 RX_7Z = re.compile(r"^\s*(\d{1,3})%")
@@ -377,7 +800,7 @@ def parse_7z(job, line):
 
 # ---------------------------------------------------------------- jobs
 PUBLIC = ("id", "created", "status", "step", "prog", "plan", "params", "result", "warnings", "error",
-          "finished", "started")
+          "finished", "started", "phase", "origin")
 
 
 class Job:
@@ -394,6 +817,8 @@ class Job:
         self.warnings = []
         self.error = None
         self.finished = None
+        self.phase = "prep"
+        self.origin = params.get("origin", "manual")
         self._init_runtime()
 
     def _init_runtime(self):
@@ -401,6 +826,10 @@ class Job:
         self.cancel_flag = False
         self.go = threading.Event()
         self.keep_work = False
+        self.build_src = None
+        self.fix_files = []
+        self.reserve = 0
+        self.src_bytes = None
         self.step_started = time.time()
         self.logpath = os.path.join(DATA, "logs", "jobs", self.id + ".log")
         self.work = os.path.join(self.params["work"], "job-" + self.id)
@@ -539,7 +968,8 @@ class Job:
         if m:
             unpacked = int(m.group(1))
             need = int(unpacked * (1.6 if need_build else 1.05))
-            free = disk(dest)["free"]
+            free = free_for(dest, self)
+            self.reserve = need
             self.log(f"Archiv entpackt: {human(unpacked)} · benötigt im Arbeitsordner ~{human(need)} · frei {human(free)}")
             if free is not None and free < need:
                 raise JobError(f"Zu wenig Platz im Arbeitsordner: braucht ~{human(need)}, frei {human(free)}. "
@@ -548,7 +978,7 @@ class Job:
         self.set_progress(100)
 
     # -- pipeline
-    def execute(self):
+    def prepare(self):
         p = self.params
         self.started = time.time()
         os.makedirs(self.work, exist_ok=True)
@@ -563,6 +993,9 @@ class Job:
         self.log(f"Erkannt: {kind} -> {src}")
         fix = p.get("fix")
         plan = []
+        sums = find_checksums(src) if p.get("checksum", True) and os.path.isfile(src) else {}
+        if sums:
+            plan.append("Prüfsumme")
         if kind == "archive":
             plan.append("Quelle entpacken")
         elif kind == "pkg":
@@ -577,6 +1010,10 @@ class Job:
         if p.get("cleanup"):
             plan.append("Aufräumen")
         self.set_plan(plan)
+
+        if sums:
+            self.set_step("Prüfsumme")
+            self.verify_checksums(src, kind, sums)
 
         in_work = False
         if kind == "archive":
@@ -675,18 +1112,26 @@ class Job:
         if rc != 0 or "eboot.bin: no" in out or "sce_sys: no" in out:
             raise JobError("inspect: Quelle ungültig (sce_sys oder eboot.bin fehlt?) – siehe Log")
 
+        self.build_src, self.fix_files, self.tmp = build_src, fix_files, tmp
+        self.reserve = int((self.src_bytes or 0) * 0.6)
         if p.get("confirm"):
             self.set_step("Freigabe")
             self.status = "waiting"
             self.step = "Wartet auf Freigabe – Log prüfen, dann 'Bauen'"
             self.log("== Angehalten. Erkennung und Fix-Abgleich oben prüfen, dann in der Oberfläche 'Bauen' klicken.")
-            save_jobs()
-            while not self.go.wait(1):
-                self.check()
-            self.check()
-            self.status = "running"
-            LOG.info("job %s: released by user", self.id)
+            notify("waiting", self)
+        else:
+            for x in self.plan:
+                if x["state"] == "active":
+                    x["state"] = "done"
+            self.status, self.step = "ready", "bereit zum Bauen"
+            self.log("== Vorbereitet, wartet auf freien Build-Platz.")
+        save_jobs()
 
+    def build(self):
+        p = self.params
+        build_src, fix_files, tmp = self.build_src, self.fix_files, self.tmp
+        self.phase = "build"
         self.set_step("FPKG bauen")
         stage = os.path.join(p["out"], ".building-" + self.id)
         os.makedirs(stage, exist_ok=True)
@@ -753,6 +1198,50 @@ class Job:
             chown_tree(self.work)
         for x in self.plan:
             x["state"] = "done"
+        self.reserve = 0
+
+    def verify_checksums(self, src, kind, sums):
+        files = archive_volumes(src) if kind == "archive" else [src]
+        names = {os.path.basename(f): f for f in files}
+        todo = []
+        for n, f in names.items():
+            entry = sums.get(n.lower()) or (sums.get("*") if len(files) == 1 else None)
+            if entry:
+                todo.append((f, entry))
+            else:
+                self.log(f"keine Prüfsumme für {n}")
+        if not todo:
+            self.warn("Prüfsummendatei gefunden, aber kein passender Eintrag für die Quelldatei(en)")
+            return
+        total = sum(os.path.getsize(f) for f, _ in todo)
+        done, t0, last = 0, time.time(), 0.0
+        for f, (algo, want, origin) in todo:
+            h = hashlib.sha256() if algo == "sha256" else hashlib.md5() if algo == "md5" else None
+            crc = 0
+            with open(f, "rb") as fh:
+                while True:
+                    self.check()
+                    b = fh.read(COPY_CHUNK)
+                    if not b:
+                        break
+                    if h:
+                        h.update(b)
+                    else:
+                        crc = zlib.crc32(b, crc)
+                    done += len(b)
+                    now = time.time()
+                    if now - last > 0.7:
+                        last = now
+                        spd = done / max(now - t0, 0.001)
+                        self.set_progress(done * 100 / max(total, 1), None,
+                                          f"{os.path.basename(f)} · {human(done)} / {human(total)} · {human(spd)}/s",
+                                          fmt_eta((total - done) / spd if spd else None))
+            got = h.hexdigest() if h else f"{crc & 0xffffffff:08x}"
+            if got.lower() != want.lower():
+                raise JobError(f"Prüfsumme FALSCH für {os.path.basename(f)} ({algo}): erwartet {want}, ist {got} "
+                               f"(Quelle: {os.path.basename(origin)}). Download ist beschädigt.")
+            self.log(f"Prüfsumme OK: {os.path.basename(f)} ({algo} aus {os.path.basename(origin)})")
+        self.set_progress(100)
 
     def extract_exfat(self, image):
         try:
@@ -766,7 +1255,8 @@ class Job:
             rel, node = found
             total = img.size_of(node)
             self.log(f"App-Ordner im Image: /{rel}  ({human(total)}, Volume-Offset {img.base}, Cluster {img.csize})")
-            free = disk(self.work)["free"]
+            free = free_for(self.work, self)
+            self.reserve = int(total * 1.6)
             if free is not None and free < total * 1.6:
                 raise JobError(f"Zu wenig Platz im Arbeitsordner: braucht ~{human(total * 1.6)} (Kopie + Build-Temp), "
                                f"frei {human(free)}. Unter 'Erweitert' einen größeren Arbeitsordner wählen.")
@@ -840,7 +1330,7 @@ def load_jobs():
             j.plan = j.plan or []
             j.warnings = j.warnings or []
             j._init_runtime()
-            if j.status in ("queued", "running", "waiting"):
+            if j.status in ("queued", "running", "waiting", "ready"):
                 j.status, j.error, j.step = "failed", "Container wurde neu gestartet", "Fehler"
             JOBS[j.id] = j
             ORDER.append(j.id)
@@ -849,48 +1339,92 @@ def load_jobs():
         LOG.exception("could not load jobs.json")
 
 
-def worker():
+def finish(job, exc=None):
+    """Common end handling for both phases. exc=None means success of the build phase."""
+    if exc is None:
+        job.status, job.step = "done", "fertig"
+        LOG.info("job %s: done -> %s", job.id, (job.result or {}).get("pkg"))
+    elif isinstance(exc, Cancelled):
+        job.status, job.step = "cancelled", "abgebrochen"
+        job.log("\n== abgebrochen")
+        LOG.info("job %s: cancelled", job.id)
+        cleanup_after_fail(job)
+    else:
+        job.status, job.error, job.step = "failed", str(exc), "Fehler"
+        job.log("\nFEHLER: " + str(exc))
+        if not isinstance(exc, JobError):
+            job.log("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+            LOG.error("job %s: unexpected error: %r", job.id, exc)
+        else:
+            LOG.error("job %s: %s", job.id, exc)
+        cleanup_after_fail(job)
+    for x in job.plan:
+        if x["state"] == "active":
+            x["state"] = "failed" if job.status != "done" else "done"
+    job.reserve = 0
+    job.finished = time.time()
+    try:
+        watch_after(job)
+    except Exception:
+        LOG.exception("watch_after failed")
+    save_jobs()
+    if job.status in ("done", "failed"):
+        notify(job.status, job)
+
+
+def building_busy():
+    return any(JOBS[i].phase == "build" and JOBS[i].status == "running" for i in ORDER)
+
+
+def prep_worker():
+    """Phase 1: checksum, extract, copy, fix, inspect. Runs ahead of the builder when overlap is enabled."""
     while True:
         try:
-            worker_step()
+            with QUEUE_CV:
+                while True:
+                    nxt = next((JOBS[i] for i in ORDER if JOBS[i].status == "queued"), None)
+                    ready = any(JOBS[i].status == "ready" for i in ORDER)
+                    pending = ready or any(JOBS[i].status == "waiting" for i in ORDER)
+                    # overlap: prepare at most one job ahead of the running build
+                    if nxt and ((SETTINGS.get("overlap", True) and not ready) or (not building_busy() and not pending)):
+                        break
+                    QUEUE_CV.wait(5)
+                nxt.status, nxt.phase = "running", "prep"
+            LOG.info("job %s: prepare source=%s fix=%s", nxt.id, nxt.params["source"], nxt.params.get("fix"))
+            save_jobs()
+            try:
+                nxt.prepare()
+            except BaseException as e:  # noqa: B902 - includes Cancelled
+                finish(nxt, e)
+            with QUEUE_CV:
+                QUEUE_CV.notify_all()
         except Exception:
-            LOG.exception("worker crashed, continuing")
+            LOG.exception("prep worker crashed, continuing")
             time.sleep(1)
 
 
-def worker_step():
-    with QUEUE_CV:
-        while True:
-            nxt = next((JOBS[i] for i in ORDER if JOBS[i].status == "queued"), None)
-            if nxt:
-                break
-            QUEUE_CV.wait()
-        nxt.status = "running"
-    LOG.info("job %s: start source=%s fix=%s", nxt.id, nxt.params["source"], nxt.params.get("fix"))
-    save_jobs()
-    try:
-        nxt.execute()
-        nxt.status, nxt.step = "done", "fertig"
-        LOG.info("job %s: done -> %s", nxt.id, (nxt.result or {}).get("pkg"))
-    except Cancelled:
-        nxt.status, nxt.step = "cancelled", "abgebrochen"
-        nxt.log("\n== abgebrochen")
-        LOG.info("job %s: cancelled", nxt.id)
-        cleanup_after_fail(nxt)
-    except Exception as e:
-        nxt.status, nxt.error, nxt.step = "failed", str(e), "Fehler"
-        nxt.log("\nFEHLER: " + str(e))
-        if not isinstance(e, JobError):
-            nxt.log(traceback.format_exc())
-            LOG.exception("job %s: unexpected error", nxt.id)
-        else:
-            LOG.error("job %s: %s", nxt.id, e)
-        cleanup_after_fail(nxt)
-    for x in nxt.plan:
-        if x["state"] == "active":
-            x["state"] = "failed" if nxt.status != "done" else "done"
-    nxt.finished = time.time()
-    save_jobs()
+def build_worker():
+    """Phase 2: fpkg-cli build + package checks. One build at a time."""
+    while True:
+        try:
+            with QUEUE_CV:
+                while True:
+                    nxt = next((JOBS[i] for i in ORDER if JOBS[i].status == "ready"), None)
+                    if nxt:
+                        break
+                    QUEUE_CV.wait(5)
+                nxt.status = "running"
+            save_jobs()
+            try:
+                nxt.build()
+                finish(nxt)
+            except BaseException as e:  # noqa: B902
+                finish(nxt, e)
+            with QUEUE_CV:
+                QUEUE_CV.notify_all()
+        except Exception:
+            LOG.exception("build worker crashed, continuing")
+            time.sleep(1)
 
 
 def cleanup_after_fail(j):
@@ -959,6 +1493,8 @@ def diag():
                    "DATA_DIR": DATA, "PUID": PUID, "PGID": PGID, "PORT": PORT,
                    "LOG_LEVEL": ENV("LOG_LEVEL", "INFO"), "TZ": ENV("TZ", "")},
         "jobs": counts,
+        "settings": {k: v for k, v in public_settings().items()},
+        "watch": {"last_scan": WATCH["last_scan"], "error": WATCH["error"], "processed": len(WATCH_PROCESSED)},
     }
 
 
@@ -1130,6 +1666,15 @@ class H(BaseHTTPRequestHandler):
                     return self.send(200, [JOBS[i].public() for i in reversed(ORDER[-60:])])
             if u.path == "/api/diag":
                 return self.send(200, diag())
+            if u.path == "/api/settings":
+                return self.send(200, public_settings())
+            if u.path == "/api/watch":
+                with WATCH_LOCK:
+                    items = [{"key": k, "name": v["name"], "state": v["state"], "job": v.get("job")}
+                             for k, v in WATCH["items"].items()]
+                return self.send(200, {"enabled": SETTINGS["watch_enabled"], "dir": SETTINGS["watch_dir"],
+                                       "fix_dir": SETTINGS["watch_fix_dir"], "last_scan": WATCH["last_scan"],
+                                       "error": WATCH["error"], "items": items})
             if u.path == "/api/diag/selftest":
                 return self.send(200, selftest())
             if u.path == "/api/diag/log":
@@ -1175,28 +1720,27 @@ class H(BaseHTTPRequestHandler):
                     "confirm": bool(b.get("confirm")),
                     "cleanup": bool(b.get("cleanup")),
                     "delete_archive": bool(b.get("delete_archive")),
+                    "checksum": bool(b.get("checksum", True)),
+                    "origin": "manual",
                 }
                 if params["delete_archive"] and classify(params["source"])[0] != "archive":
                     params["delete_archive"] = False
-                os.makedirs(params["out"], exist_ok=True)
-                os.makedirs(params["work"], exist_ok=True)
-                j = Job(params)
-                with QUEUE_CV:
-                    JOBS[j.id] = j
-                    ORDER.append(j.id)
-                    QUEUE_CV.notify_all()
-                LOG.info("job %s: queued %s", j.id, json.dumps(params, ensure_ascii=False))
-                save_jobs()
-                return self.send(200, j.public())
+                return self.send(200, enqueue(params).public())
             m = re.match(r"^/api/jobs/([\w-]+)/(continue|cancel|cleanup|delete)$", u.path)
             if m and m.group(1) in JOBS:
                 j, act = JOBS[m.group(1)], m.group(2)
-                active = j.status in ("queued", "running", "waiting")
+                active = j.status in ("queued", "running", "waiting", "ready")
                 if act == "continue" and j.status == "waiting":
-                    j.go.set()
+                    j.status, j.step = "ready", "bereit zum Bauen"
+                    j.log("== Freigegeben, wartet auf freien Build-Platz.")
+                    LOG.info("job %s: released by user", j.id)
+                    with QUEUE_CV:
+                        QUEUE_CV.notify_all()
                 elif act == "cancel" and active:
                     if j.status == "queued":
-                        j.status, j.step = "cancelled", "abgebrochen"
+                        j.status, j.step, j.finished = "cancelled", "abgebrochen", time.time()
+                    elif j.status in ("waiting", "ready"):
+                        finish(j, Cancelled())
                     else:
                         threading.Thread(target=j.cancel, daemon=True).start()
                 elif act == "cleanup" and not active:
@@ -1213,6 +1757,29 @@ class H(BaseHTTPRequestHandler):
                         pass
                 save_jobs()
                 return self.send(200, {"ok": True})
+            if u.path == "/api/settings":
+                update_settings(self.body())
+                WATCH_KICK.set()
+                with QUEUE_CV:
+                    QUEUE_CV.notify_all()
+                return self.send(200, public_settings())
+            if u.path == "/api/settings/pushover-test":
+                ok, info = send_pushover("FPKG Builder – Test", "Pushover ist korrekt eingerichtet.", 0,
+                                         SETTINGS.get("webui_url") or None)
+                LOG.info("pushover test: %s", "ok" if ok else info)
+                return self.send(200 if ok else 400, {"ok": ok, "info": info} if ok else {"error": info})
+            if u.path == "/api/watch/scan":
+                WATCH_KICK.set()
+                return self.send(200, {"ok": True})
+            if u.path == "/api/watch/forget":
+                key = (self.body().get("key") or "")
+                with WATCH_LOCK:
+                    WATCH_PROCESSED.pop(key, None)
+                    WATCH["items"].pop(key, None)
+                save_watch()
+                WATCH_KICK.set()
+                LOG.info("watch: forgot %s", key)
+                return self.send(200, {"ok": True})
             return self.send(404, {"error": "not found"})
         except Exception as e:
             return self.handle_err(e)
@@ -1225,8 +1792,12 @@ def main():
         LOG.warning("Keine freigegebenen Ordner gefunden (BROWSE_ROOTS=%s) – Pfade im Template prüfen", ROOTS_SPEC)
     rc, info = fpkg_info()
     LOG.info("fpkg-cli: %s", "ok" if rc == 0 else f"FEHLER rc={rc}: {info[:300]}")
+    load_settings()
+    load_watch()
     load_jobs()
-    threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=prep_worker, daemon=True, name="prep").start()
+    threading.Thread(target=build_worker, daemon=True, name="build").start()
+    threading.Thread(target=watcher, daemon=True, name="watch").start()
     ThreadingHTTPServer(("0.0.0.0", PORT), H).serve_forever()
 
 

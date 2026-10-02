@@ -21,6 +21,13 @@ Quelle auswählen, optional einen Fix/Backport drüberlegen, „FPKG erstellen�
 - **Fortschritt:** Schritt-Leiste und Balken mit Restzeit für Entpacken, Kopieren und Bauen.
 - **Vor dem Bauen anhalten** (Standard): erkannte Version und Fix-Abgleich prüfen, dann „Bauen“.
 - **Quellarchiv nach dem Entpacken löschen** (Standard: aus) – inklusive aller Teile.
+- **Watch-Ordner:** Was fertig im Eingang landet (z. B. von SABnzbd/JDownloader), wird automatisch gebaut.
+  Unvollständige Downloads (`.part`, `_UNPACK_…`) werden erkannt, ein Fix wird über die Title-ID im Namen
+  (z. B. `PPSA11386 PSSR Fix.zip`) aus dem Fix-Ordner zugeordnet, die Quelle landet danach in `_erledigt`.
+- **Prüfsumme:** liegt eine `SHA-256.txt`, `*.sha256`, `SHA256SUMS`, `*.md5` oder `*.sfv` neben der Quelle,
+  wird vor dem Entpacken geprüft – auch über alle Teile mehrteiliger Archive.
+- **Überlappende Warteschlange:** während ein Auftrag baut, wird der nächste schon vorbereitet.
+- **Pushover:** Nachricht bei fertig, Fehler und „wartet auf Freigabe“.
 - **Warteschlange**, Abbrechen, Neu starten, Arbeitsordner aufräumen.
 - **Diagnose:** Versionen, gemappte Ordner mit freiem Platz und Schreibrecht, Selbsttest,
   Server-Log, Download eines Diagnose-Pakets (ZIP mit Logs und Auftragsliste), Log je Auftrag.
@@ -60,6 +67,19 @@ Pfade per Umgebungsvariablen: `SHARES="/mnt/user/NZB:NZB /mnt/user/isos:isos" OU
 
 Variablen: `PUID`/`PGID` (Besitzer der fertigen Pakete, Standard 99/100), `LOG_LEVEL` (`INFO`/`DEBUG`),
 `BROWSE_ROOTS` (Standard `/shares/*:/output:/work`).
+
+## Einstellungen
+
+Reiter *Einstellungen* (gespeichert in `/config/settings.json`):
+
+| Bereich | Optionen |
+|---|---|
+| Warteschlange | Überlappend arbeiten, Prüfsumme standardmäßig prüfen |
+| Watch-Ordner | Eingang (Standard `/shares/NZB/fpkg-inbox`), Fix-Ordner (`/shares/NZB/fpkg-fixes`), Stillstand vor Start, Prüfintervall, Kompression, Anhalten vor dem Bauen, Arbeitsordner/Archiv löschen, Quelle nach `_erledigt` verschieben |
+| Pushover | User Key, API Token, Link in der Nachricht, Ereignisse |
+
+Bereits verarbeitete Einträge merkt sich der Watch-Ordner in `/config/watch_state.json`; mit ↻ in der Liste
+lässt sich ein Eintrag erneut verarbeiten.
 
 ## Was man wissen muss
 

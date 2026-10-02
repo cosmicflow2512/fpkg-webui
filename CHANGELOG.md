@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0 – 2026-10-02
+- Watch-Ordner: fertige Archive/Images/.pkg/Ordner im Eingang werden automatisch eingereiht (Stillstand-Erkennung, `.part`/`_UNPACK_` werden übersprungen), Fix wird über die Title-ID im Namen aus dem Fix-Ordner zugeordnet, Quelle danach nach `_erledigt`
+- Pushover-Benachrichtigung bei fertig, Fehler (Priorität hoch) und „wartet auf Freigabe“, mit Test-Knopf
+- Prüfsumme vor dem Entpacken: SHA-256/MD5 (sha256sum-, BSD- und Einzeilen-Format, z. B. SHA-256.txt) und SFV, auch über mehrteilige Archive
+- Überlappende Warteschlange: der nächste Auftrag wird vorbereitet (Prüfsumme, Entpacken, Fix), während der aktuelle baut – max. ein Auftrag Vorlauf, Platz wird für beide eingeplant
+- Freigabe blockiert die Warteschlange nicht mehr; neuer Status „bereit“
+- Neuer Reiter „Einstellungen“ (gespeichert in /config/settings.json)
+
 ## 1.0.1 – 2026-10-02
 - Platzprüfung vor dem Entpacken von Archiven und dem Kopieren aus exFAT (entpackte Größe × 1,6 inkl. Build-Temp), klarer Hinweis statt vollgelaufenem Pool
 - Template: Arbeitsordner standardmäßig direkt auf dem Cache-Pool (schneller als Array/FUSE), Host-Port 8099

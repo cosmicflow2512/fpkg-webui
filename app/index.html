@@ -54,7 +54,11 @@ details{margin-top:12px} summary{cursor:pointer;font-size:13px;color:var(--muted
 .job .mini i{display:block;height:100%;background:var(--run)}
 .chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;text-transform:uppercase;letter-spacing:.4px;border:1px solid currentColor}
 .c-queued{color:var(--muted)} .c-running{color:var(--run)} .c-waiting{color:var(--warn)}
-.c-done{color:var(--ok)} .c-failed{color:var(--err)} .c-cancelled{color:var(--muted)}
+.c-done{color:var(--ok)} .c-failed{color:var(--err)} .c-cancelled{color:var(--muted)} .c-ready{color:var(--run)}
+.tag{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;background:var(--panel);border:1px solid var(--line);color:var(--muted);margin-left:6px;vertical-align:1px}
+.set h3{margin:18px 0 6px} .set h3:first-child{margin-top:0}
+.set .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px}
+.wl{font-size:13px;margin-top:8px} .wl div{display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)} .wl .n{flex:1;word-break:break-all} .wl .st{color:var(--muted);font-size:12px}
 .detail-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
 .detail-head .step{flex:1;min-width:200px;font-weight:600}
 .steps{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0 0 10px;padding:0;list-style:none;font-size:12px}
@@ -117,6 +121,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <div class="opts">
       <label><input type="checkbox" id="confirm" checked><span>Vor dem Bauen anhalten<small>zeigt erkannte Version und Fix-Abgleich, Bauen erst nach Klick</small></span></label>
       <label><input type="checkbox" id="cleanup" checked><span>Arbeitsordner nach Erfolg löschen<small>entpackte Daten (oft 50–100 GB) werden entfernt</small></span></label>
+      <label><input type="checkbox" id="checksum" checked><span>Prüfsumme prüfen, wenn vorhanden<small>SHA-256 / MD5 / SFV neben der Quelle (z. B. SHA-256.txt) – kaputte Downloads fallen vor dem Entpacken auf</small></span></label>
       <label id="lbl-del"><input type="checkbox" id="delete_archive"><span>Quellarchiv nach dem Entpacken löschen<small>löscht die .7z/.zip/.rar inkl. aller Teile (part2, .001 …), sobald das Entpacken erfolgreich war</small></span></label>
     </div>
     <details>
@@ -136,7 +141,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   </section>
 
   <section class="card">
-    <div class="tabs"><button class="on" data-tab="jobs">Aufträge</button><button data-tab="diag">Diagnose</button></div>
+    <div class="tabs"><button class="on" data-tab="jobs">Aufträge</button><button data-tab="set">Einstellungen</button><button data-tab="diag">Diagnose</button></div>
 
     <div id="tab-jobs">
       <div class="jobs" id="jobs"><div class="empty">Noch keine Aufträge</div></div>
@@ -159,6 +164,49 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
         <ul class="warns" id="d-warns"></ul>
         <pre class="log" id="d-log"></pre>
       </div>
+    </div>
+
+    <div id="tab-set" class="set" style="display:none">
+      <h3>Warteschlange</h3>
+      <div class="opts">
+        <label><input type="checkbox" id="s-overlap"><span>Überlappend arbeiten<small>Während ein Auftrag baut (CPU), wird der nächste schon geprüft/entpackt (Platte). Platz im Arbeitsordner wird dabei für beide eingeplant.</small></span></label>
+        <label><input type="checkbox" id="s-checksum"><span>Prüfsumme standardmäßig prüfen<small>gilt für neue Aufträge und den Watch-Ordner</small></span></label>
+      </div>
+
+      <h3>Watch-Ordner</h3>
+      <div class="opts"><label><input type="checkbox" id="s-watch_enabled"><span>Watch-Ordner aktiv<small>Archive, Images, .pkg und Ordner, die dort fertig ankommen, werden automatisch eingereiht</small></span></label></div>
+      <label class="f">Eingang</label>
+      <div class="row"><input id="s-watch_dir" type="text"><button data-pick="s-watch_dir" data-dir="1">…</button></div>
+      <label class="f">Fix-Ordner <span style="font-weight:400;color:var(--muted)">(Fix wird über die Title-ID im Namen zugeordnet, z. B. „PPSA11386 PSSR Fix.zip“)</span></label>
+      <div class="row"><input id="s-watch_fix_dir" type="text"><button data-pick="s-watch_fix_dir" data-dir="1">…</button></div>
+      <div class="grid">
+        <div><label class="f">Stillstand vor Start (s)</label><input id="s-watch_stable" type="text"></div>
+        <div><label class="f">Prüfintervall (s)</label><input id="s-watch_interval" type="text"></div>
+        <div><label class="f">Kompression</label><select id="s-watch_preset"><option value="standard">Standard</option><option value="fast">Schnell</option><option value="smallest">Klein</option></select></div>
+        <div><label class="f">Nach Erfolg</label><select id="s-watch_after"><option value="move">Quelle nach _erledigt verschieben</option><option value="keep">Quelle liegen lassen</option></select></div>
+      </div>
+      <div class="opts">
+        <label><input type="checkbox" id="s-watch_confirm"><span>Vor dem Bauen anhalten<small>sonst baut der Watch-Ordner ohne Rückfrage</small></span></label>
+        <label><input type="checkbox" id="s-watch_cleanup"><span>Arbeitsordner nach Erfolg löschen</span></label>
+        <label><input type="checkbox" id="s-watch_delete_archive"><span>Quellarchiv nach dem Entpacken löschen</span></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button id="w-scan">Jetzt prüfen</button><span class="hint" id="w-info" style="align-self:center"></span></div>
+      <div class="wl" id="w-list"></div>
+
+      <h3>Pushover</h3>
+      <div class="opts"><label><input type="checkbox" id="s-pushover_enabled"><span>Benachrichtigungen per Pushover</span></label></div>
+      <div class="grid">
+        <div><label class="f">User Key</label><input id="s-pushover_user" type="text" autocomplete="off"></div>
+        <div><label class="f">API Token (App)</label><input id="s-pushover_token" type="text" autocomplete="off"></div>
+      </div>
+      <label class="f">Link in der Nachricht <span style="font-weight:400;color:var(--muted)">(optional, z. B. http://192.168.0.20:8099)</span></label>
+      <input id="s-webui_url" type="text">
+      <div class="opts" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+        <label><input type="checkbox" id="s-notify_done"><span>fertig</span></label>
+        <label><input type="checkbox" id="s-notify_failed"><span>Fehler (Priorität hoch)</span></label>
+        <label><input type="checkbox" id="s-notify_waiting"><span>wartet auf Freigabe</span></label>
+      </div>
+      <div class="row" style="margin-top:14px;flex-wrap:wrap"><button class="go" id="s-save">Speichern</button><button id="s-test">Pushover testen</button><span class="hint" id="s-msg" style="align-self:center"></span></div>
     </div>
 
     <div id="tab-diag" style="display:none">
@@ -198,11 +246,12 @@ const human = n => { if (n == null) return ''; const u=['B','KB','MB','GB','TB']
 const dur = s => { s=Math.round(s||0); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60; return h? `${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}` : `${m}:${String(x).padStart(2,'0')}`; };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const KIND = {archive:'Archiv', folder:'App-Ordner', exfat:'exFAT-Image', ffpfsc:'ffpfsc-Image', ffpkg:'ffpkg-Image', pkg:'FPKG'};
-const STATUS = {queued:'Warteschlange', running:'läuft', waiting:'wartet', done:'fertig', failed:'Fehler', cancelled:'abgebrochen'};
+const STATUS = {queued:'Warteschlange', running:'läuft', waiting:'Freigabe', ready:'bereit', done:'fertig', failed:'Fehler', cancelled:'abgebrochen'};
+const ACTIVE = ['queued','running','waiting','ready'];
 let CFG = {}, sel = null, logOff = -1, logFor = null, srcKind = null;
 
 // ---------- form persistence (per browser)
-const FIELDS = ['src','fix','out','work','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive'];
+const FIELDS = ['src','fix','out','work','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum'];
 function saveForm(){ try{ const o={}; FIELDS.forEach(k=>{const e=$('#'+k); o[k]=e.type==='checkbox'?e.checked:e.value}); localStorage.setItem('fpkg-form', JSON.stringify(o)); }catch(e){} }
 function loadForm(){ try{ const o=JSON.parse(localStorage.getItem('fpkg-form')||'{}'); FIELDS.forEach(k=>{ if(k in o && k!=='delete_archive'){const e=$('#'+k); if(e.type==='checkbox') e.checked=o[k]; else e.value=o[k];} }); }catch(e){} }
 
@@ -266,7 +315,7 @@ async function fbLoad(p){
     L.appendChild(d);
   });
 }
-function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); saveForm(); if(fbTarget==='src'||fbTarget==='fix') probe(fbTarget); else freeHint(fbTarget); }
+function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); if(fbTarget.startsWith('s-')) return; saveForm(); if(fbTarget==='src'||fbTarget==='fix') probe(fbTarget); else freeHint(fbTarget); }
 $('#fb-here').onclick = () => fbPath && choose(fbPath);
 $('#fb-home').onclick = () => fbLoad('');
 $('#fb-cancel').onclick = () => $('#fb').close();
@@ -274,14 +323,14 @@ document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => fbOpen(b
 $('#fix-clear').onclick = () => { $('#fix').value=''; saveForm(); probe('fix'); };
 ['src','fix'].forEach(id => $('#'+id).addEventListener('input', ()=>{ saveForm(); probeLater(id); }));
 ['out','work'].forEach(id => $('#'+id).addEventListener('change', ()=>{ saveForm(); freeHint(id); }));
-['preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive'].forEach(id => $('#'+id).addEventListener('change', saveForm));
+['preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum'].forEach(id => $('#'+id).addEventListener('change', saveForm));
 
 // ---------- start
 $('#start').onclick = async () => {
   $('#start-err').textContent='';
   const b = {source:$('#src').value.trim(), fix:$('#fix').value.trim(), out:$('#out').value.trim(), work:$('#work').value.trim(),
              preset:$('#preset').value, confirm:$('#confirm').checked, cleanup:$('#cleanup').checked,
-             keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked};
+             keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked, checksum:$('#checksum').checked};
   if (!b.source){ $('#start-err').textContent='Quelle fehlt'; return; }
   if (b.delete_archive && !confirm('Das Quellarchiv wird nach erfolgreichem Entpacken GELÖSCHT. Fortfahren?')) return;
   $('#start').disabled=true;
@@ -291,7 +340,8 @@ $('#start').onclick = async () => {
 };
 
 // ---------- tabs
-function showTab(t){ document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on', b.dataset.tab===t)); $('#tab-jobs').style.display=t==='jobs'?'':'none'; $('#tab-diag').style.display=t==='diag'?'':'none'; if(t==='diag') loadDiag(); }
+let curTab='jobs';
+function showTab(t){ curTab=t; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on', b.dataset.tab===t)); ['jobs','set','diag'].forEach(x=>$('#tab-'+x).style.display=t===x?'':'none'); if(t==='diag') loadDiag(); if(t==='set') loadSettings(); }
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
 // ---------- jobs
@@ -305,8 +355,8 @@ async function refresh(){
   box.innerHTML='';
   jobs.forEach(j=>{
     const d=document.createElement('div'); d.className='job'+(j.id===sel?' sel':'');
-    const ov = ['running','waiting'].includes(j.status) ? overall(j) : null;
-    d.innerHTML=`<span class="chip c-${j.status}">${STATUS[j.status]||j.status}</span><div style="min-width:0"><div class="t">${esc(title(j))}</div><div class="s">${esc(j.error||j.step||'')}</div>${ov!=null?`<div class="mini"><i style="width:${ov.toFixed(1)}%"></i></div>`:''}</div><span class="s">${new Date(j.created*1000).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>`;
+    const ov = ['running','waiting','ready'].includes(j.status) ? overall(j) : null;
+    d.innerHTML=`<span class="chip c-${j.status}">${STATUS[j.status]||j.status}</span><div style="min-width:0"><div class="t">${esc(title(j))}${j.origin==="watch"?'<span class="tag">auto</span>':''}</div><div class="s">${esc(j.error||j.step||'')}</div>${ov!=null?`<div class="mini"><i style="width:${ov.toFixed(1)}%"></i></div>`:''}</div><span class="s">${new Date(j.created*1000).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>`;
     d.onclick=()=>select(j.id);
     box.appendChild(d);
   });
@@ -316,7 +366,7 @@ function renderJob(j){
   $('#detail').style.display='';
   $('#d-chip').className='chip c-'+j.status; $('#d-chip').textContent=STATUS[j.status]||j.status;
   $('#d-step').textContent = j.error ? j.error : j.step;
-  const act=['queued','running','waiting'].includes(j.status);
+  const act=ACTIVE.includes(j.status);
   $('#b-continue').style.display = j.status==='waiting'?'':'none';
   $('#b-cancel').style.display = act?'':'none';
   $('#b-cleanup').style.display = act?'none':'';
@@ -326,6 +376,7 @@ function renderJob(j){
   $('#d-steps').innerHTML = (j.plan||[]).map(x=>`<li class="${x.state}">${esc(x.label)}</li>`).join('');
   const pr = j.prog||{}, bar=$('#d-bar');
   const showBar = j.status==='running';
+  if (j.status==='ready') { $('#d-step').textContent = 'bereit – wartet auf freien Build-Platz'; }
   $('#d-progress').style.display = showBar ? '' : 'none';
   if (showBar){
     const indet = pr.pct==null;
@@ -389,6 +440,26 @@ $('#g-selftest').onclick = async () => {
   }catch(e){ $('#g-test').innerHTML = `<p class="hint err">${esc(e.message)}</p>`; }
 };
 
+// ---------- settings
+const SKEYS = ['overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','watch_stable','watch_interval','watch_preset','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting'];
+async function loadSettings(){
+  try{ const s = await api('/api/settings'); SKEYS.forEach(k=>{ const e=$('#s-'+k); if(!e) return; if(e.type==='checkbox') e.checked=!!s[k]; else e.value=s[k]??''; }); }catch(e){ $('#s-msg').textContent=e.message; }
+  loadWatch();
+}
+function readSettings(){ const o={}; SKEYS.forEach(k=>{ const e=$('#s-'+k); if(e) o[k]= e.type==='checkbox'?e.checked:e.value; }); return o; }
+$('#s-save').onclick = async () => { const m=$('#s-msg'); try{ await post('/api/settings', readSettings()); m.className='hint ok'; m.textContent='gespeichert'; loadSettings(); }catch(e){ m.className='hint err'; m.textContent=e.message; } };
+$('#s-test').onclick = async () => { const m=$('#s-msg'); m.className='hint'; m.textContent='sende …'; try{ await post('/api/settings', readSettings()); await post('/api/settings/pushover-test'); m.className='hint ok'; m.textContent='Testnachricht gesendet'; }catch(e){ m.className='hint err'; m.textContent='Pushover: '+e.message; } };
+async function loadWatch(){
+  try{
+    const w = await api('/api/watch');
+    $('#w-info').className = 'hint' + (w.error?' err':'');
+    $('#w-info').textContent = w.error ? w.error : (w.enabled ? ('aktiv · zuletzt geprüft '+(w.last_scan? new Date(w.last_scan*1000).toLocaleTimeString('de-DE'):'–')) : 'aus');
+    $('#w-list').innerHTML = w.items.length ? w.items.map(it=>`<div><span class="n">${esc(it.name)}</span><span class="st">${esc(it.state)}${it.job?' · '+esc(it.job):''}</span>${it.state==='verarbeitet'||it.state.startsWith('ignoriert')?`<button data-forget="${esc(it.key)}" title="erneut verarbeiten">↻</button>`:''}</div>`).join('') : (w.enabled?'<div class="st">Eingang ist leer</div>':'');
+    document.querySelectorAll('[data-forget]').forEach(b=>b.onclick=()=>post('/api/watch/forget',{key:b.dataset.forget}).then(loadWatch));
+  }catch(e){}
+}
+$('#w-scan').onclick = () => post('/api/watch/scan').then(()=>setTimeout(loadWatch,1500));
+
 (async () => {
   CFG = await api('/api/config');
   $('#ver').textContent = 'v'+CFG.version;
@@ -396,7 +467,8 @@ $('#g-selftest').onclick = async () => {
   loadForm(); updDel();
   probe('src'); probe('fix'); freeHint('out'); freeHint('work');
   await refresh(); pollLog();
-  setInterval(refresh, 3000); setInterval(pollLog, 1200);
+  setInterval(refresh, 3000); setInterval(pollLog, 1200); setInterval(()=>{ if(curTab==='set') loadWatch(); }, 5000);
+  try{ const s=await api('/api/settings'); if(!localStorage.getItem('fpkg-form')) $('#checksum').checked=!!s.checksum; }catch(e){}
 })();
 </script>
 </body>

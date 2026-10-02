@@ -9,7 +9,7 @@
   <Project>https://github.com/cosmicflow2512/fpkg-webui</Project>
   <Overview>Weboberfläche zum Erstellen von PS5-FPKGs (Debug-Pakete) mit PSVIETHOA fpkg-cli.&#xD;
 Quelle: 7z/zip/rar (auch mehrteilig), .exfat/.ffpfsc/.ffpkg, .pkg oder App-Ordner. Optional einen Fix/Backport drüberlegen.&#xD;
-Fortschrittsbalken, Warteschlange, Diagnose mit Selbsttest und Log-Download.&#xD;
+Watch-Ordner mit automatischer Fix-Zuordnung, Prüfsummen-Check, überlappende Warteschlange, Pushover, Diagnose.&#xD;
 &#xD;
 Pfade: Jeder Ordner, der im Container unter /shares/&lt;Name&gt; gemappt ist, erscheint im Dateibrowser. Weitere Shares mit "Add another Path" hinzufügen (Container Path z. B. /shares/isos).
   </Overview>
