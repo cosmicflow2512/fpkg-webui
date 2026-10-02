@@ -10,7 +10,7 @@ IMAGE=${IMAGE:-ghcr.io/cosmicflow2512/fpkg-webui:latest}
 PORT=${PORT:-8099}
 SHARES=${SHARES:-"/mnt/user/NZB:NZB /mnt/user/download:download"}
 OUT=${OUT:-/mnt/user/NZB/ps5-fpkg/out}
-WORK=${WORK:-/mnt/user/NZB/ps5-fpkg/work}
+WORK=${WORK:-/mnt/cache/appdata/fpkg-webui/work}
 APPDATA=${APPDATA:-/mnt/cache/appdata/fpkg-webui}
 TZ=${TZ:-$(cat /etc/timezone 2>/dev/null || echo Europe/Berlin)}
 

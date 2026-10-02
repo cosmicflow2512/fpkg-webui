@@ -55,7 +55,7 @@ Pfade per Umgebungsvariablen: `SHARES="/mnt/user/NZB:NZB /mnt/user/isos:isos" OU
 |---|---|
 | `/shares/<Name>` | Quell-Shares. **Jeder** Ordner unter `/shares/` erscheint im Dateibrowser. Weitere Shares per *Add another Path* mit Container-Pfad `/shares/<Name>` |
 | `/output` | fertige `.pkg`-Dateien |
-| `/work` | entpackte Spiele und Temp-Dateien – braucht etwa das 2–3-fache der Spielgröße |
+| `/work` | entpackte Spiele und Build-Temp – braucht ca. das 1,6-fache der entpackten Größe. Am schnellsten direkt auf einem NVMe-Pool (`/mnt/<pool>/…`), nicht über `/mnt/user` und nicht auf dem Array mit Parität |
 | `/config` | Auftragsliste, Logs (`logs/server.log`, `logs/jobs/*.log`) |
 
 Variablen: `PUID`/`PGID` (Besitzer der fertigen Pakete, Standard 99/100), `LOG_LEVEL` (`INFO`/`DEBUG`),

@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -532,7 +532,18 @@ class Job:
                 shutil.copystat(s, d, follow_symlinks=False)
         self.set_progress(100)
 
-    def sevenz(self, archive, dest):
+    def sevenz(self, archive, dest, need_build=False):
+        """Extract; checks free space first (unpacked size, plus build temp if the content is built later)."""
+        rc, out = cmd_out([SEVENZ, "l", archive], 300)
+        m = re.search(r"^\S+ \S+\s+(\d+)\s+(\d+)?\s*\d+ files", out, re.M) if rc == 0 else None
+        if m:
+            unpacked = int(m.group(1))
+            need = int(unpacked * (1.6 if need_build else 1.05))
+            free = disk(dest)["free"]
+            self.log(f"Archiv entpackt: {human(unpacked)} · benötigt im Arbeitsordner ~{human(need)} · frei {human(free)}")
+            if free is not None and free < need:
+                raise JobError(f"Zu wenig Platz im Arbeitsordner: braucht ~{human(need)}, frei {human(free)}. "
+                               "Unter 'Erweitert' einen größeren Arbeitsordner wählen (z. B. auf dem Array).")
         self.run([SEVENZ, "x", "-y", "-bso0", "-bse1", "-bsp1", f"-o{dest}", archive], parse_7z)
         self.set_progress(100)
 
@@ -574,7 +585,7 @@ class Job:
             self.log("Archiv-Teile: " + ", ".join(os.path.basename(v) for v in vols)
                      + f" ({human(sum(os.path.getsize(v) for v in vols))})")
             dst = os.path.join(self.work, "src")
-            self.sevenz(src, dst)
+            self.sevenz(src, dst, need_build=True)
             strip_junk(dst)
             inner_kind, inner = classify(dst)
             self.log(f"Im Archiv erkannt: {inner_kind} -> {inner}")
@@ -756,8 +767,9 @@ class Job:
             total = img.size_of(node)
             self.log(f"App-Ordner im Image: /{rel}  ({human(total)}, Volume-Offset {img.base}, Cluster {img.csize})")
             free = disk(self.work)["free"]
-            if free is not None and free < total * 1.05:
-                raise JobError(f"Zu wenig Platz: braucht ~{human(total)}, frei {human(free)}")
+            if free is not None and free < total * 1.6:
+                raise JobError(f"Zu wenig Platz im Arbeitsordner: braucht ~{human(total * 1.6)} (Kopie + Build-Temp), "
+                               f"frei {human(free)}. Unter 'Erweitert' einen größeren Arbeitsordner wählen.")
             dst = os.path.join(self.work, "app")
             t0, last = time.time(), [0.0]
 

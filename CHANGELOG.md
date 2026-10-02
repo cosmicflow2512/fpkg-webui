@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1 – 2026-10-02
+- Platzprüfung vor dem Entpacken von Archiven und dem Kopieren aus exFAT (entpackte Größe × 1,6 inkl. Build-Temp), klarer Hinweis statt vollgelaufenem Pool
+- Template: Arbeitsordner standardmäßig direkt auf dem Cache-Pool (schneller als Array/FUSE), Host-Port 8099
+
 ## 1.0.0 – 2026-10-02
 - Erste Version: Weboberfläche für fpkg-cli 2.2.5
 - Quellen: 7z/zip/rar (mehrteilig), exFAT/ffpfsc/ffpkg, pkg, App-Ordner
