@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPKG Builder</title>
+<style>
+:root{
+  --bg:#f4f5f7; --panel:#ffffff; --panel2:#eef0f3; --line:#d9dde3; --text:#1c2026; --muted:#5f6772;
+  --accent:#e2582b; --accent-ink:#fff; --ok:#1f8a4c; --warn:#b26a00; --err:#c4332b; --run:#2463c7;
+  --track:#e3e6ea; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --log-bg:#101318; --log-ink:#cfd6df;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#14171c; --panel:#1b1f26; --panel2:#232831; --line:#2e3440; --text:#e6e9ee; --muted:#9aa3ae;
+  --accent:#f0693a; --ok:#3fbf73; --warn:#e3a53a; --err:#f06a5f; --run:#5b93f0; --track:#2a303a; --log-bg:#0c0e12;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;align-items:baseline;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{margin:0;font-size:18px}
+header .sub{color:var(--muted);font-size:13px;flex:1}
+main{display:grid;grid-template-columns:minmax(320px,440px) minmax(0,1fr);gap:16px;padding:16px 20px;max-width:1500px;margin:0 auto}
+@media (max-width:900px){main{grid-template-columns:minmax(0,1fr);padding:12px 16px}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.card h2{margin:0 0 12px;font-size:14px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+label.f{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+label.f:first-of-type{margin-top:0}
+.row{display:flex;gap:6px}
+input[type=text],select{width:100%;min-width:0;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--text);font:13px var(--mono)}
+select{font-family:inherit}
+button{cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:7px;padding:8px 12px;font:inherit;font-size:13px;white-space:nowrap}
+button:hover{border-color:var(--muted)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600;width:100%;padding:11px;margin-top:16px;font-size:15px}
+button.go{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:600}
+button.danger{color:var(--err)}
+button:disabled{opacity:.5;cursor:default}
+.hint{font-size:12px;color:var(--muted);margin-top:4px;min-height:16px;word-break:break-word}
+.hint.ok{color:var(--ok)} .hint.err{color:var(--err)} .hint.warn{color:var(--warn)}
+.opts{display:grid;gap:8px;margin-top:12px}
+.opts label{display:flex;gap:8px;align-items:flex-start;font-size:13px}
+.opts label.off{opacity:.45}
+.opts small{display:block;color:var(--muted)}
+details{margin-top:12px} summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.tabs{display:flex;gap:4px;margin:-4px 0 12px;border-bottom:1px solid var(--line)}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:8px 12px;color:var(--muted);font-weight:600}
+.tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
+.jobs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;max-height:230px;overflow:auto}
+.job{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:8px;cursor:pointer;background:var(--panel2)}
+.job.sel{border-color:var(--accent)}
+.job .t{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.job .s{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.job .mini{height:3px;background:var(--track);border-radius:2px;margin-top:4px;overflow:hidden}
+.job .mini i{display:block;height:100%;background:var(--run)}
+.chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;text-transform:uppercase;letter-spacing:.4px;border:1px solid currentColor}
+.c-queued{color:var(--muted)} .c-running{color:var(--run)} .c-waiting{color:var(--warn)}
+.c-done{color:var(--ok)} .c-failed{color:var(--err)} .c-cancelled{color:var(--muted)}
+.detail-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.detail-head .step{flex:1;min-width:200px;font-weight:600}
+.steps{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0 0 10px;padding:0;list-style:none;font-size:12px}
+.steps li{display:flex;gap:6px;align-items:center;color:var(--muted)}
+.steps li::before{content:"";width:9px;height:9px;border-radius:50%;border:2px solid var(--line)}
+.steps li.done{color:var(--text)} .steps li.done::before{background:var(--ok);border-color:var(--ok)}
+.steps li.active{color:var(--run);font-weight:700} .steps li.active::before{border-color:var(--run);background:var(--run);animation:pulse 1.2s infinite}
+.steps li.failed{color:var(--err)} .steps li.failed::before{background:var(--err);border-color:var(--err)}
+@keyframes pulse{50%{opacity:.35}}
+.bar{position:relative;height:20px;background:var(--track);border-radius:6px;overflow:hidden;margin-bottom:4px}
+.bar i{position:absolute;inset:0 auto 0 0;background:var(--run);transition:width .6s ease}
+.bar.indet i{width:30%!important;animation:slide 1.4s infinite ease-in-out}
+@keyframes slide{0%{left:-30%}100%{left:100%}}
+.bar span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:600 12px var(--mono);color:var(--text);mix-blend-mode:normal}
+.pline{display:flex;gap:10px;justify-content:space-between;font:12px var(--mono);color:var(--muted);min-height:16px;margin-bottom:10px}
+.pline .d{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+pre.log{background:var(--log-bg);color:var(--log-ink);font:12px/1.45 var(--mono);padding:12px;border-radius:8px;height:48vh;min-height:260px;overflow:auto;margin:0;white-space:pre-wrap;word-break:break-all}
+.result{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;display:none}
+.result b{font-family:var(--mono);word-break:break-all}
+.warns{color:var(--warn);font-size:13px;margin:0 0 10px;padding-left:18px}
+.empty{color:var(--muted);font-size:14px;padding:30px 0;text-align:center}
+.kv{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;font-size:13px;margin:0 0 14px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-family:var(--mono);word-break:break-all}
+table.t{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px}
+table.t td,table.t th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+table.t th{color:var(--muted);font-weight:600}
+.okc{color:var(--ok);font-weight:700} .bad{color:var(--err);font-weight:700}
+h3{font-size:13px;margin:16px 0 8px}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--text);padding:0;width:min(760px,94vw);max-height:84vh}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.fb-head{display:flex;gap:8px;align-items:center;padding:12px;border-bottom:1px solid var(--line)}
+.fb-path{flex:1;font:12px var(--mono);word-break:break-all}
+.fb-list{overflow:auto;max-height:58vh}
+.fb-item{display:flex;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line);cursor:pointer;font-size:13px;align-items:center}
+.fb-item:hover{background:var(--panel2)}
+.fb-item.dim{opacity:.45}
+.fb-item .n{flex:1;word-break:break-all}
+.fb-item .z{color:var(--muted);font:12px var(--mono);white-space:nowrap}
+.fb-foot{display:flex;gap:8px;justify-content:flex-end;padding:12px;border-top:1px solid var(--line)}
+.ico{width:16px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<header><h1>FPKG Builder</h1><span class="sub">PSVIETHOA fpkg-cli · Unraid</span><span class="sub" id="ver" style="flex:0"></span></header>
+<main>
+  <section class="card">
+    <h2>Neuer Auftrag</h2>
+    <label class="f" for="src">Quelle</label>
+    <div class="row"><input id="src" type="text" placeholder="Datei oder Ordner wählen"><button data-pick="src" title="Durchsuchen">…</button></div>
+    <div class="hint" id="src-hint">7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)</div>
+
+    <label class="f" for="fix">Fix / Backport <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+    <div class="row"><input id="fix" type="text" placeholder="leer = ohne Fix"><button data-pick="fix" title="Durchsuchen">…</button><button id="fix-clear" title="Fix entfernen">✕</button></div>
+    <div class="hint" id="fix-hint">Archiv oder Ordner; Dateien ersetzen gleichnamige im App-Ordner</div>
+
+    <label class="f" for="out">Ausgabeordner</label>
+    <div class="row"><input id="out" type="text"><button data-pick="out" data-dir="1" title="Durchsuchen">…</button></div>
+    <div class="hint" id="out-hint"></div>
+
+    <div class="opts">
+      <label><input type="checkbox" id="confirm" checked><span>Vor dem Bauen anhalten<small>zeigt erkannte Version und Fix-Abgleich, Bauen erst nach Klick</small></span></label>
+      <label><input type="checkbox" id="cleanup" checked><span>Arbeitsordner nach Erfolg löschen<small>entpackte Daten (oft 50–100 GB) werden entfernt</small></span></label>
+      <label id="lbl-del"><input type="checkbox" id="delete_archive"><span>Quellarchiv nach dem Entpacken löschen<small>löscht die .7z/.zip/.rar inkl. aller Teile (part2, .001 …), sobald das Entpacken erfolgreich war</small></span></label>
+    </div>
+    <details>
+      <summary>Erweitert</summary>
+      <label class="f" for="preset">Kompression</label>
+      <select id="preset"><option value="standard">Standard (Kraken 4)</option><option value="fast">Schnell (Kraken 2)</option><option value="smallest">Klein (Kraken 7 Optimal, 5–6× langsamer)</option></select>
+      <label class="f" for="work">Arbeitsordner</label>
+      <div class="row"><input id="work" type="text"><button data-pick="work" data-dir="1" title="Durchsuchen">…</button></div>
+      <div class="hint" id="work-hint"></div>
+      <div class="opts">
+        <label><input type="checkbox" id="keep_ampr"><span>AMPR-Reste behalten (--keep-ampr)<small>betrifft nur ampr_emu.index; fakelib/libSceAmpr.sprx entfernt der Builder immer</small></span></label>
+        <label><input type="checkbox" id="keep_dump"><span>Dump-Reste behalten (--keep-dump-leftovers)<small>_DUBLEX_, Unreal Engine/Saved, &lt;Projekt&gt;/Saved</small></span></label>
+      </div>
+    </details>
+    <button class="primary" id="start">FPKG erstellen</button>
+    <div class="hint err" id="start-err"></div>
+  </section>
+
+  <section class="card">
+    <div class="tabs"><button class="on" data-tab="jobs">Aufträge</button><button data-tab="diag">Diagnose</button></div>
+
+    <div id="tab-jobs">
+      <div class="jobs" id="jobs"><div class="empty">Noch keine Aufträge</div></div>
+      <div id="detail" style="display:none">
+        <div class="detail-head">
+          <span class="chip" id="d-chip"></span><span class="step" id="d-step"></span>
+          <button class="go" id="b-continue" style="display:none">Bauen</button>
+          <button class="danger" id="b-cancel">Abbrechen</button>
+          <button id="b-retry" title="Mit denselben Einstellungen neu starten">Neu starten</button>
+          <button id="b-cleanup" title="Arbeitsordner dieses Auftrags löschen">Arbeitsordner löschen</button>
+          <button id="b-dl" title="Log als Datei herunterladen">Log ↓</button>
+          <button id="b-delete" title="Aus der Liste entfernen">Entfernen</button>
+        </div>
+        <ul class="steps" id="d-steps"></ul>
+        <div id="d-progress">
+          <div class="bar" id="d-bar"><i></i><span></span></div>
+          <div class="pline"><span class="d" id="d-pdetail"></span><span id="d-eta"></span></div>
+        </div>
+        <div class="result" id="d-result"></div>
+        <ul class="warns" id="d-warns"></ul>
+        <pre class="log" id="d-log"></pre>
+      </div>
+    </div>
+
+    <div id="tab-diag" style="display:none">
+      <div class="row" style="flex-wrap:wrap;margin-bottom:12px">
+        <button id="g-refresh">Aktualisieren</button>
+        <button id="g-selftest">Selbsttest</button>
+        <button id="g-bundle">Diagnose-Paket ↓</button>
+      </div>
+      <dl class="kv" id="g-kv"></dl>
+      <h3>Freigegebene Ordner</h3>
+      <table class="t" id="g-roots"></table>
+      <div id="g-test"></div>
+      <h3>fpkg-cli info</h3>
+      <pre class="log" id="g-info" style="height:auto;min-height:0;max-height:260px"></pre>
+      <h3>Server-Log <button id="g-logref" style="margin-left:8px;padding:2px 8px">neu laden</button></h3>
+      <pre class="log" id="g-log" style="height:36vh"></pre>
+    </div>
+  </section>
+</main>
+
+<dialog id="fb">
+  <div class="fb-head"><button id="fb-up" title="Eine Ebene höher">↑</button><button id="fb-home" title="Freigegebene Ordner">⌂</button><div class="fb-path" id="fb-path"></div></div>
+  <div class="fb-list" id="fb-list"></div>
+  <div class="fb-foot"><button id="fb-cancel">Abbrechen</button><button class="go" id="fb-here">Diesen Ordner wählen</button></div>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = async (url, opt) => {
+  const r = await fetch(url, opt);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+};
+const post = (url, body) => api(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
+const human = n => { if (n == null) return ''; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<4){n/=1024;i++} return (i?n.toFixed(1):n)+' '+u[i]; };
+const dur = s => { s=Math.round(s||0); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60; return h? `${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}` : `${m}:${String(x).padStart(2,'0')}`; };
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const KIND = {archive:'Archiv', folder:'App-Ordner', exfat:'exFAT-Image', ffpfsc:'ffpfsc-Image', ffpkg:'ffpkg-Image', pkg:'FPKG'};
+const STATUS = {queued:'Warteschlange', running:'läuft', waiting:'wartet', done:'fertig', failed:'Fehler', cancelled:'abgebrochen'};
+let CFG = {}, sel = null, logOff = -1, logFor = null, srcKind = null;
+
+// ---------- form persistence (per browser)
+const FIELDS = ['src','fix','out','work','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive'];
+function saveForm(){ try{ const o={}; FIELDS.forEach(k=>{const e=$('#'+k); o[k]=e.type==='checkbox'?e.checked:e.value}); localStorage.setItem('fpkg-form', JSON.stringify(o)); }catch(e){} }
+function loadForm(){ try{ const o=JSON.parse(localStorage.getItem('fpkg-form')||'{}'); FIELDS.forEach(k=>{ if(k in o && k!=='delete_archive'){const e=$('#'+k); if(e.type==='checkbox') e.checked=o[k]; else e.value=o[k];} }); }catch(e){} }
+
+// ---------- probes
+let probeT = {};
+function probeLater(id){ clearTimeout(probeT[id]); probeT[id] = setTimeout(()=>probe(id), 400); }
+function updDel(){ const on = srcKind==='archive'; $('#lbl-del').classList.toggle('off', !on); $('#delete_archive').disabled = !on; if(!on) $('#delete_archive').checked=false; }
+async function probe(id){
+  const v = $('#'+id).value.trim(), h = $('#'+id+'-hint');
+  if (id==='src') { srcKind=null; updDel(); }
+  if (id==='fix' && !v){ h.className='hint'; h.textContent='ohne Fix'; return; }
+  if (!v){ h.className='hint'; h.textContent=''; return; }
+  h.className='hint'; h.textContent='prüfe …';
+  try{
+    const r = await api('/api/probe?path='+encodeURIComponent(v));
+    let t = (KIND[r.kind]||r.kind);
+    if (r.volumes>1) t += ` (${r.volumes} Teile)`;
+    if (r.size!=null) t += ' · '+human(r.size);
+    if (r.app) t += ' · App: '+r.app+(r.content?' ('+human(r.content)+')':'');
+    if (r.param) t += ' · '+r.param;
+    if (r.note) t += ' · '+r.note;
+    if (r.path !== v && id==='src') t += ' · verwendet: '+r.path.split('/').slice(-2).join('/');
+    h.className='hint ok'; h.textContent=t;
+    if (id==='src'){ srcKind=r.kind; updDel(); }
+  }catch(e){
+    if (id==='fix'){ h.className='hint'; h.textContent='Fix-Ordner (Inhalt wird beim Lauf geprüft)'; return; }
+    h.className='hint err'; h.textContent=e.message;
+  }
+}
+async function freeHint(id){
+  const v=$('#'+id).value.trim(), h=$('#'+id+'-hint'); if(!v) return;
+  try{ const r=await api('/api/free?path='+encodeURIComponent(v)); h.className='hint'; h.textContent = r.free!=null ? 'frei: '+human(r.free)+' von '+human(r.total) : ''; }
+  catch(e){ h.className='hint err'; h.textContent=e.message; }
+}
+
+// ---------- file browser
+let fbTarget = null, fbDirMode = false, fbPath = '';
+async function fbOpen(target, dirMode){
+  fbTarget = target; fbDirMode = dirMode;
+  $('#fb-here').textContent = dirMode ? 'Diesen Ordner wählen' : 'Ordner wählen';
+  const cur = $('#'+target).value.trim();
+  await fbLoad(cur || '');
+  $('#fb').showModal();
+}
+async function fbLoad(p){
+  let r;
+  try{ r = await api('/api/ls?path='+encodeURIComponent(p)); }
+  catch(e){ r = await api('/api/ls?path='); }
+  fbPath = r.path;
+  $('#fb-path').textContent = r.path || 'Freigegebene Ordner';
+  $('#fb-up').disabled = r.parent === null; $('#fb-here').disabled = !r.path;
+  $('#fb-up').onclick = () => r.parent !== null && fbLoad(r.parent);
+  const L = $('#fb-list'); L.innerHTML='';
+  if (!r.items.length) L.innerHTML = r.path ? '<div class="empty">leer</div>' : '<div class="empty">Keine Ordner gemappt – Pfade im Unraid-Template prüfen</div>';
+  r.items.forEach(it=>{
+    const d=document.createElement('div');
+    d.className='fb-item'+((!it.dir && (fbDirMode || !it.usable))?' dim':'');
+    const z = it.dir ? (it.free!=null ? 'frei '+human(it.free) : '') : human(it.size);
+    d.innerHTML=`<span class="ico">${it.dir?'▸':'·'}</span><span class="n">${esc(it.name)}${r.path?'':' <span style="color:var(--muted);font:11px var(--mono)">'+esc(it.path)+'</span>'}</span><span class="z">${z}</span>`;
+    d.onclick=()=>{ if (it.dir) return fbLoad(it.path); if (!fbDirMode) choose(it.path); };
+    L.appendChild(d);
+  });
+}
+function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); saveForm(); if(fbTarget==='src'||fbTarget==='fix') probe(fbTarget); else freeHint(fbTarget); }
+$('#fb-here').onclick = () => fbPath && choose(fbPath);
+$('#fb-home').onclick = () => fbLoad('');
+$('#fb-cancel').onclick = () => $('#fb').close();
+document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => fbOpen(b.dataset.pick, !!b.dataset.dir));
+$('#fix-clear').onclick = () => { $('#fix').value=''; saveForm(); probe('fix'); };
+['src','fix'].forEach(id => $('#'+id).addEventListener('input', ()=>{ saveForm(); probeLater(id); }));
+['out','work'].forEach(id => $('#'+id).addEventListener('change', ()=>{ saveForm(); freeHint(id); }));
+['preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive'].forEach(id => $('#'+id).addEventListener('change', saveForm));
+
+// ---------- start
+$('#start').onclick = async () => {
+  $('#start-err').textContent='';
+  const b = {source:$('#src').value.trim(), fix:$('#fix').value.trim(), out:$('#out').value.trim(), work:$('#work').value.trim(),
+             preset:$('#preset').value, confirm:$('#confirm').checked, cleanup:$('#cleanup').checked,
+             keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked};
+  if (!b.source){ $('#start-err').textContent='Quelle fehlt'; return; }
+  if (b.delete_archive && !confirm('Das Quellarchiv wird nach erfolgreichem Entpacken GELÖSCHT. Fortfahren?')) return;
+  $('#start').disabled=true;
+  try{ const j = await post('/api/jobs', b); showTab('jobs'); select(j.id); await refresh(); }
+  catch(e){ $('#start-err').textContent=e.message; }
+  finally{ $('#start').disabled=false; }
+};
+
+// ---------- tabs
+function showTab(t){ document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on', b.dataset.tab===t)); $('#tab-jobs').style.display=t==='jobs'?'':'none'; $('#tab-diag').style.display=t==='diag'?'':'none'; if(t==='diag') loadDiag(); }
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+
+// ---------- jobs
+function title(j){ const s=j.params.source.split('/').pop(); return j.params.fix ? s+'  +  '+j.params.fix.split('/').pop() : s; }
+function overall(j){ if(!j.plan||!j.plan.length) return null; const n=j.plan.length; const d=j.plan.filter(x=>x.state==='done').length; const a=j.plan.findIndex(x=>x.state==='active'); const pct=(j.prog&&j.prog.pct!=null)?j.prog.pct/100:0; return Math.min(100,((d+(a>=0?pct:0))/n)*100); }
+async function refresh(){
+  let jobs; try{ jobs = await api('/api/jobs'); }catch(e){ return; }
+  const box=$('#jobs');
+  if (!jobs.length){ box.innerHTML='<div class="empty">Noch keine Aufträge</div>'; $('#detail').style.display='none'; return; }
+  if (!sel || !jobs.find(j=>j.id===sel)) sel = jobs[0].id;
+  box.innerHTML='';
+  jobs.forEach(j=>{
+    const d=document.createElement('div'); d.className='job'+(j.id===sel?' sel':'');
+    const ov = ['running','waiting'].includes(j.status) ? overall(j) : null;
+    d.innerHTML=`<span class="chip c-${j.status}">${STATUS[j.status]||j.status}</span><div style="min-width:0"><div class="t">${esc(title(j))}</div><div class="s">${esc(j.error||j.step||'')}</div>${ov!=null?`<div class="mini"><i style="width:${ov.toFixed(1)}%"></i></div>`:''}</div><span class="s">${new Date(j.created*1000).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>`;
+    d.onclick=()=>select(j.id);
+    box.appendChild(d);
+  });
+}
+function select(id){ sel=id; logOff=-1; logFor=null; $('#d-log').textContent=''; refresh(); pollLog(); }
+function renderJob(j){
+  $('#detail').style.display='';
+  $('#d-chip').className='chip c-'+j.status; $('#d-chip').textContent=STATUS[j.status]||j.status;
+  $('#d-step').textContent = j.error ? j.error : j.step;
+  const act=['queued','running','waiting'].includes(j.status);
+  $('#b-continue').style.display = j.status==='waiting'?'':'none';
+  $('#b-cancel').style.display = act?'':'none';
+  $('#b-cleanup').style.display = act?'none':'';
+  $('#b-delete').style.display = act?'none':'';
+  $('#b-retry').style.display = ['failed','cancelled'].includes(j.status)?'':'none';
+  $('#b-retry').onclick = async () => { const p=j.params; try{ const n = await post('/api/jobs', {...p, source:p.source, fix:p.fix||'', delete_archive:false}); select(n.id); }catch(e){ alert(e.message); } };
+  $('#d-steps').innerHTML = (j.plan||[]).map(x=>`<li class="${x.state}">${esc(x.label)}</li>`).join('');
+  const pr = j.prog||{}, bar=$('#d-bar');
+  const showBar = j.status==='running';
+  $('#d-progress').style.display = showBar ? '' : 'none';
+  if (showBar){
+    const indet = pr.pct==null;
+    bar.classList.toggle('indet', indet);
+    bar.querySelector('i').style.width = indet ? '' : pr.pct.toFixed(1)+'%';
+    bar.querySelector('span').textContent = indet ? (pr.phase||j.step) : `${pr.pct.toFixed(1)} %${pr.phase?' · '+pr.phase:''}`;
+    $('#d-pdetail').textContent = pr.detail||'';
+    $('#d-eta').textContent = pr.eta ? 'noch ~'+pr.eta : (j.started? 'läuft seit '+dur(Date.now()/1000-j.started):'');
+  }
+  const res=$('#d-result');
+  if (j.result){
+    const x=j.result; res.style.display='block';
+    res.innerHTML = `Paket: <b>${esc(x.pkg)}</b><br>${esc(x.title||'')} · ${esc(x.content_id||'')} · Version ${esc(x.version||'?')} · Firmware ${esc(x.fw||'?')} · ${human(x.size)} · verify ${x.verify?'<span class="okc">OK</span>':'<span class="bad">FEHLER</span>'}${x.duration?' · Dauer '+dur(x.duration):''}`
+      + (x.fix_missing && x.fix_missing.length ? `<br><span style="color:var(--warn)">nicht im Paket: ${esc(x.fix_missing.join(', '))}</span>` : (x.fix_missing ? '<br><span style="color:var(--ok)">alle Fix-Dateien im Paket</span>' : ''));
+  } else res.style.display='none';
+  $('#d-warns').innerHTML = (j.warnings||[]).map(w=>`<li>${esc(w)}</li>`).join('');
+}
+async function pollLog(){
+  if (!sel) return;
+  const id = sel;
+  let r; try{ r = await api(`/api/jobs/${id}/log?offset=${logFor===id?logOff:-1}`); }catch(e){ return; }
+  if (id!==sel) return;
+  const pre=$('#d-log'), atBottom = pre.scrollTop+pre.clientHeight >= pre.scrollHeight-30;
+  if (logFor!==id){ pre.textContent=''; logFor=id; }
+  if (r.text){ pre.textContent += r.text; if (pre.textContent.length>600000) pre.textContent = pre.textContent.slice(-400000); if (atBottom) pre.scrollTop=pre.scrollHeight; }
+  logOff = r.offset;
+  renderJob(r.job);
+}
+$('#b-continue').onclick = () => post(`/api/jobs/${sel}/continue`).then(pollLog);
+$('#b-cancel').onclick = () => confirm('Auftrag abbrechen?') && post(`/api/jobs/${sel}/cancel`).then(pollLog);
+$('#b-cleanup').onclick = () => confirm('Arbeitsordner dieses Auftrags löschen?') && post(`/api/jobs/${sel}/cleanup`).then(pollLog);
+$('#b-dl').onclick = () => { location.href = `/api/jobs/${sel}/download`; };
+$('#b-delete').onclick = () => post(`/api/jobs/${sel}/delete`).then(()=>{ sel=null; refresh().then(pollLog); });
+
+// ---------- diagnostics
+async function loadDiag(){
+  try{
+    const d = await api('/api/diag');
+    const mem = d.memory||{};
+    const kv = [['Version', d.app_version], ['Laufzeit', dur(d.uptime)], ['7-Zip', d.sevenzip], ['Python', d.python],
+      ['System', d.platform], ['CPUs / RAM', `${d.cpus} · ${human(mem.available)} frei von ${human(mem.total)}`],
+      ['Aufträge', Object.entries(d.jobs).map(([k,v])=>`${STATUS[k]||k}: ${v}`).join(' · ')||'–'],
+      ['Konfiguration', Object.entries(d.config).map(([k,v])=>`${k}=${v}`).join('  ')]];
+    $('#g-kv').innerHTML = kv.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+    $('#g-roots').innerHTML = '<tr><th>Ordner</th><th>Pfad im Container</th><th>Frei</th><th>Schreibbar</th></tr>' +
+      (d.roots.length ? d.roots.map(r=>`<tr><td>${esc(r.label)}</td><td style="font-family:var(--mono)">${esc(r.path)}</td><td>${human(r.free)} / ${human(r.total)}</td><td>${r.writable?'<span class="okc">ja</span>':'<span class="bad">nein</span>'}</td></tr>`).join('')
+       : '<tr><td colspan="4" class="bad">Keine Ordner gemappt</td></tr>');
+    $('#g-info').textContent = d.fpkg_cli_info;
+  }catch(e){ $('#g-kv').innerHTML = `<dt>Fehler</dt><dd>${esc(e.message)}</dd>`; }
+  loadServerLog();
+}
+async function loadServerLog(){ try{ const r = await api('/api/diag/log?lines=400'); const pre=$('#g-log'); pre.textContent=r.text; pre.scrollTop=pre.scrollHeight; }catch(e){} }
+$('#g-refresh').onclick = loadDiag;
+$('#g-logref').onclick = loadServerLog;
+$('#g-bundle').onclick = () => { location.href='/api/diag/bundle'; };
+$('#g-selftest').onclick = async () => {
+  $('#g-test').innerHTML = '<p class="hint">Selbsttest läuft …</p>';
+  try{
+    const c = await api('/api/diag/selftest');
+    $('#g-test').innerHTML = '<h3>Selbsttest</h3><table class="t">' + c.map(x=>`<tr><td>${x.ok?'<span class="okc">OK</span>':'<span class="bad">FEHLER</span>'}</td><td>${esc(x.name)}</td><td style="color:var(--muted)">${esc(x.detail)}</td></tr>`).join('') + '</table>';
+  }catch(e){ $('#g-test').innerHTML = `<p class="hint err">${esc(e.message)}</p>`; }
+};
+
+(async () => {
+  CFG = await api('/api/config');
+  $('#ver').textContent = 'v'+CFG.version;
+  $('#out').value = CFG.out; $('#work').value = CFG.work;
+  loadForm(); updDel();
+  probe('src'); probe('fix'); freeHint('out'); freeHint('work');
+  await refresh(); pollLog();
+  setInterval(refresh, 3000); setInterval(pollLog, 1200);
+})();
+</script>
+</body>
+</html>

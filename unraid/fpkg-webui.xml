@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>fpkg-webui</Name>
+  <Repository>ghcr.io/cosmicflow2512/fpkg-webui:latest</Repository>
+  <Registry>https://github.com/cosmicflow2512/fpkg-webui/pkgs/container/fpkg-webui</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/cosmicflow2512/fpkg-webui/issues</Support>
+  <Project>https://github.com/cosmicflow2512/fpkg-webui</Project>
+  <Overview>Weboberfläche zum Erstellen von PS5-FPKGs (Debug-Pakete) mit PSVIETHOA fpkg-cli.&#xD;
+Quelle: 7z/zip/rar (auch mehrteilig), .exfat/.ffpfsc/.ffpkg, .pkg oder App-Ordner. Optional einen Fix/Backport drüberlegen.&#xD;
+Fortschrittsbalken, Warteschlange, Diagnose mit Selbsttest und Log-Download.&#xD;
+&#xD;
+Pfade: Jeder Ordner, der im Container unter /shares/&lt;Name&gt; gemappt ist, erscheint im Dateibrowser. Weitere Shares mit "Add another Path" hinzufügen (Container Path z. B. /shares/isos).
+  </Overview>
+  <Category>Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8095]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/cosmicflow2512/fpkg-webui/main/unraid/fpkg-webui.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/cosmicflow2512/fpkg-webui/main/unraid/icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <Config Name="WebUI Port" Target="8095" Default="8095" Mode="tcp" Description="Port der Weboberfläche" Type="Port" Display="always" Required="true" Mask="false">8095</Config>
+  <Config Name="Share: NZB" Target="/shares/NZB" Default="/mnt/user/NZB/" Mode="rw" Description="Quell-Share (Archive, Images, Fixes). Erscheint im Dateibrowser als 'NZB'. Container-Pfad muss unter /shares/ liegen." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/NZB/</Config>
+  <Config Name="Share: download" Target="/shares/download" Default="/mnt/user/download/" Mode="rw" Description="Weiterer Quell-Share. Leer lassen, wenn nicht benötigt." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/download/</Config>
+  <Config Name="Ausgabe (fertige FPKGs)" Target="/output" Default="/mnt/user/download/ps5-fpkg/out/" Mode="rw" Description="Hier landen die fertigen .pkg-Dateien." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/download/ps5-fpkg/out/</Config>
+  <Config Name="Arbeitsordner" Target="/work" Default="/mnt/user/download/ps5-fpkg/work/" Mode="rw" Description="Entpackte Spiele und Temp-Dateien. Braucht etwa das 2-3-fache der Spielgröße. Nicht auf den Cache legen, wenn der klein ist." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/download/ps5-fpkg/work/</Config>
+  <Config Name="AppData" Target="/config" Default="/mnt/user/appdata/fpkg-webui/" Mode="rw" Description="Auftragsliste, Logs, Einstellungen" Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/fpkg-webui/</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Description="Besitzer der fertigen Pakete (99 = nobody)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Description="Gruppe der fertigen Pakete (100 = users)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="LOG_LEVEL" Target="LOG_LEVEL" Default="INFO|DEBUG" Description="DEBUG protokolliert zusätzlich jeden HTTP-Aufruf und Befehl" Type="Variable" Display="advanced" Required="false" Mask="false">INFO</Config>
+</Container>
