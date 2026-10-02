@@ -9,9 +9,9 @@ NAME=fpkg-webui
 IMAGE=${IMAGE:-ghcr.io/cosmicflow2512/fpkg-webui:latest}
 PORT=${PORT:-8099}
 SHARES=${SHARES:-"/mnt/user/NZB:NZB /mnt/user/download:download"}
-OUT=${OUT:-/mnt/user/download/ps5-fpkg/out}
-WORK=${WORK:-/mnt/user/download/ps5-fpkg/work}
-APPDATA=${APPDATA:-/mnt/user/appdata/fpkg-webui}
+OUT=${OUT:-/mnt/user/NZB/ps5-fpkg/out}
+WORK=${WORK:-/mnt/user/NZB/ps5-fpkg/work}
+APPDATA=${APPDATA:-/mnt/cache/appdata/fpkg-webui}
 TZ=${TZ:-$(cat /etc/timezone 2>/dev/null || echo Europe/Berlin)}
 
 echo "== Image bauen: $IMAGE"
