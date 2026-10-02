@@ -35,7 +35,7 @@ Quelle auswählen, optional einen Fix/Backport drüberlegen, „FPKG erstellen�
    ```
 2. *Docker → Add Container → Template: fpkg-webui* wählen.
 3. Pfade anpassen (siehe unten), *Apply*.
-4. WebUI öffnen → Tab *Diagnose* → *Selbsttest*.
+4. WebUI öffnen (Standard-Port 8099; 8095 ist oft von Music Assistant im Host-Netz belegt) → Tab *Diagnose* → *Selbsttest*.
 
 Das Image wird von GitHub Actions nach `ghcr.io/cosmicflow2512/fpkg-webui` gebaut.
 Nach dem ersten Build das Paket unter *GitHub → Packages → fpkg-webui → Package settings*

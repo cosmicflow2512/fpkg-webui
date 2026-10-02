@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 
 NAME=fpkg-webui
 IMAGE=${IMAGE:-ghcr.io/cosmicflow2512/fpkg-webui:latest}
-PORT=${PORT:-8095}
+PORT=${PORT:-8099}
 SHARES=${SHARES:-"/mnt/user/NZB:NZB /mnt/user/download:download"}
 OUT=${OUT:-/mnt/user/download/ps5-fpkg/out}
 WORK=${WORK:-/mnt/user/download/ps5-fpkg/work}

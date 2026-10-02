@@ -14,12 +14,12 @@ Fortschrittsbalken, Warteschlange, Diagnose mit Selbsttest und Log-Download.&#xD
 Pfade: Jeder Ordner, der im Container unter /shares/&lt;Name&gt; gemappt ist, erscheint im Dateibrowser. Weitere Shares mit "Add another Path" hinzufügen (Container Path z. B. /shares/isos).
   </Overview>
   <Category>Tools:</Category>
-  <WebUI>http://[IP]:[PORT:8095]/</WebUI>
+  <WebUI>http://[IP]:[PORT:8099]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/cosmicflow2512/fpkg-webui/main/unraid/fpkg-webui.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/cosmicflow2512/fpkg-webui/main/unraid/icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
-  <Config Name="WebUI Port" Target="8095" Default="8095" Mode="tcp" Description="Port der Weboberfläche" Type="Port" Display="always" Required="true" Mask="false">8095</Config>
+  <Config Name="WebUI Port" Target="8095" Default="8099" Mode="tcp" Description="Host-Port der Weboberfläche (8095 ist oft von Music Assistant belegt)" Type="Port" Display="always" Required="true" Mask="false">8099</Config>
   <Config Name="Share: NZB" Target="/shares/NZB" Default="/mnt/user/NZB/" Mode="rw" Description="Quell-Share (Archive, Images, Fixes). Erscheint im Dateibrowser als 'NZB'. Container-Pfad muss unter /shares/ liegen." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/NZB/</Config>
   <Config Name="Share: download" Target="/shares/download" Default="/mnt/user/download/" Mode="rw" Description="Weiterer Quell-Share. Leer lassen, wenn nicht benötigt." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/download/</Config>
   <Config Name="Ausgabe (fertige FPKGs)" Target="/output" Default="/mnt/user/download/ps5-fpkg/out/" Mode="rw" Description="Hier landen die fertigen .pkg-Dateien." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/download/ps5-fpkg/out/</Config>
