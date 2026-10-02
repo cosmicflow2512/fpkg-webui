@@ -14,7 +14,7 @@ Fortschrittsbalken, Warteschlange, Diagnose mit Selbsttest und Log-Download.&#xD
 Pfade: Jeder Ordner, der im Container unter /shares/&lt;Name&gt; gemappt ist, erscheint im Dateibrowser. Weitere Shares mit "Add another Path" hinzufügen (Container Path z. B. /shares/isos).
   </Overview>
   <Category>Tools:</Category>
-  <WebUI>http://[IP]:[PORT:8099]/</WebUI>
+  <WebUI>http://[IP]:[PORT:8095]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/cosmicflow2512/fpkg-webui/main/unraid/fpkg-webui.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/cosmicflow2512/fpkg-webui/main/unraid/icon.png</Icon>
   <ExtraParams/>
