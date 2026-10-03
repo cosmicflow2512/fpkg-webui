@@ -1758,7 +1758,8 @@ def diag():
                    "DATA_DIR": DATA, "PUID": PUID, "PGID": PGID, "PORT": PORT,
                    "LOG_LEVEL": ENV("LOG_LEVEL", "INFO"), "TZ": ENV("TZ", "")},
         "jobs": counts,
-        "settings": {k: v for k, v in public_settings().items()},
+        "settings": {k: (f"•••• ({len(v.splitlines())} Einträge)" if k == "archive_passwords" and v else v)
+                     for k, v in public_settings().items()},
         "watch": {"last_scan": WATCH["last_scan"], "error": WATCH["error"], "processed": len(WATCH_PROCESSED)},
     }
 

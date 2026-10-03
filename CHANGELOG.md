@@ -4,7 +4,7 @@
 - Passwortgeschützte Archive (7z, RAR/RAR5, ZIP, auch mehrteilig): Erkennung schon bei der Quellauswahl, Feld „Archiv-Passwort“ im Auftrag, Passwortliste unter Einstellungen → Archiv-Passwörter (eine Zeile pro Passwort, wird der Reihe nach probiert)
 - Ohne passendes Passwort bricht der Auftrag sofort mit klarer Meldung ab statt mit „Break signaled“ (Exit 255)
 - 7-Zip und alle anderen Befehle laufen ohne Eingabekanal, Rückfragen können den Auftrag nicht mehr hängen lassen
-- Passwort wird in Oberfläche, API, Auftrags-Log und Server-Log maskiert und nicht in jobs.json gespeichert
+- Passwort wird in Oberfläche, API, Auftrags-Log, Server-Log und Diagnose-Paket maskiert und nicht in jobs.json gespeichert
 - „Neu starten“ läuft jetzt über den Server und übernimmt das Passwort des Auftrags
 
 ## 1.2.0 – 2026-10-03
