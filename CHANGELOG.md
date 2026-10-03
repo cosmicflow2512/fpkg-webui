@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0 – 2026-10-03
+- Neuer Reiter „Pakete“: alle fertigen Pakete mit Titel, Version, benötigter Firmware, SDK und Content-ID; Schnell- und Vollprüfung (`verify` / `verify --full`) per Klick, Ergebnis wird gespeichert und als Häkchen angezeigt, Prüfungen laufen unabhängig von den Aufträgen
+- Option „Vollprüfung nach dem Bauen“
+- Aufträge neu: getrennt in „Aktiv“ und „Verlauf“, Name des gewählten Auftrags groß im Kopf, Abbrechen/Löschen nur noch im Menü „⋯ Mehr“ mit Dialog, der die Folgen nennt; vorausgewählt ist „Weiterlaufen lassen“
+- „Verlauf leeren“ (löscht keine Pakete, Quellen oder Arbeitsordner)
+- Mobile Ansicht: Reiterleiste und Diagnose-Tabellen passen auf schmale Bildschirme
+
 ## 1.1.1 – 2026-10-02
 - Pushover über Template-Variablen `PUSHOVER_USER`, `PUSHOVER_TOKEN` (maskiert) und `WEBUI_URL`; gesetzte Werte haben Vorrang und sind in der WebUI gesperrt
 

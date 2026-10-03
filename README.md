@@ -29,6 +29,8 @@ Quelle auswählen, optional einen Fix/Backport drüberlegen, „FPKG erstellen�
 - **Überlappende Warteschlange:** während ein Auftrag baut, wird der nächste schon vorbereitet.
 - **Pushover:** Nachricht bei fertig, Fehler und „wartet auf Freigabe“.
 - **Warteschlange**, Abbrechen, Neu starten, Arbeitsordner aufräumen.
+- **Pakete:** Liste der fertigen Pakete mit Version, benötigter Firmware und SDK; Schnell- und Vollprüfung per Klick.
+- **Sicheres Abbrechen:** Abbrechen nur über das Menü „⋯ Mehr“ mit Dialog, der genau sagt, was passiert.
 - **Diagnose:** Versionen, gemappte Ordner mit freiem Platz und Schreibrecht, Selbsttest,
   Server-Log, Download eines Diagnose-Pakets (ZIP mit Logs und Auftragsliste), Log je Auftrag.
 

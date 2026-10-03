@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.2.0"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -1197,8 +1197,14 @@ class Job:
             else:
                 self.log("Alle Fix-Dateien sind im Paket.")
         self.set_progress(70)
-        rc, _ = self.capture([CLI, "verify", final])
+        vcmd = [CLI, "verify", final] + (["--full"] if p.get("full_verify") else [])
+        self.log("Vollprüfung (--full) läuft …" if p.get("full_verify") else "Schnellprüfung …")
+        rc, vout = self.capture(vcmd)
         res["verify"] = rc == 0
+        res["verify_mode"] = "full" if p.get("full_verify") else "quick"
+        m = RX_PASSED.search(vout)
+        record_check(final, res["verify_mode"], rc == 0 and bool(m),
+                     f"{m.group(2)} Prüfungen bestanden ({m.group(3)})" if m else "siehe Auftrags-Log", 0)
         if rc != 0:
             self.warn("verify meldet Fehler – Log prüfen")
         self.set_progress(100)
@@ -1451,6 +1457,163 @@ def cleanup_after_fail(j):
         j.log(f"Arbeitsordner gelöscht: {j.work}")
 
 
+# ---------------------------------------------------------------- package checks
+CHECKS_FILE = os.path.join(DATA, "checks.json")
+CHECK_RESULTS = {}          # path -> {"size":..,"mtime":..,"quick":{..},"full":{..}}
+CHECKS = {}                 # id -> check item (current + recent)
+CHECK_ORDER = []
+CHECK_CV = threading.Condition()
+RX_PASSED = re.compile(r"(Quick|Full) content check passed all (\d+) checks \(([^)]*)\)")
+
+
+def load_checks():
+    try:
+        if os.path.exists(CHECKS_FILE):
+            CHECK_RESULTS.update(json.load(open(CHECKS_FILE)))
+    except Exception:
+        LOG.exception("could not read checks.json")
+
+
+def save_checks():
+    try:
+        tmp = CHECKS_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(CHECK_RESULTS, f)
+        os.replace(tmp, CHECKS_FILE)
+    except Exception:
+        LOG.exception("could not write checks.json")
+
+
+def record_check(path, mode, ok, summary, duration):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return
+    r = CHECK_RESULTS.get(path)
+    if not r or r.get("size") != st.st_size or abs(r.get("mtime", 0) - st.st_mtime) > 1:
+        r = {"size": st.st_size, "mtime": st.st_mtime}
+    r[mode] = {"ok": ok, "time": time.time(), "summary": summary, "duration": duration}
+    CHECK_RESULTS[path] = r
+    save_checks()
+
+
+def check_result(path, st):
+    r = CHECK_RESULTS.get(path)
+    if r and r.get("size") == st.st_size and abs(r.get("mtime", 0) - st.st_mtime) <= 1:
+        return {k: r[k] for k in ("quick", "full") if k in r}
+    return {}
+
+
+def pkg_info(path):
+    rc, out = cmd_out([CLI, "pkg-info", path], 120)
+    info = {"ok": rc == 0}
+    for key, rx in (("title", r"Title:\s*(.+)"), ("content_id", r"Content ID:\s*(\S+)"),
+                    ("version", r"contentVersion:\s*(\S+)"), ("fw", r"Required system software:\s*(\S+)"),
+                    ("sdk", r"^\s*SDK:\s*(.+)$"), ("type", r"Package type:\s*(.+)"),
+                    ("image", r"Image mode:\s*(.+)")):
+        m = re.search(rx, out, re.M)
+        if m:
+            info[key] = m.group(1).strip()
+    info["fw_label"] = fw_label(info.get("fw"))
+    if rc != 0:
+        info["error"] = out.strip().splitlines()[-1][:300] if out.strip() else f"rc={rc}"
+    return info
+
+
+def fw_label(v):
+    m = re.match(r"0x([0-9a-fA-F]{2})([0-9a-fA-F]{2})", v or "")
+    return f"{int(m.group(1), 16)}.{int(m.group(2), 16):02d}" if m else (v or "?")
+
+
+def list_packages(d):
+    rp = safe_path(d)
+    items = []
+    for e in sorted(os.scandir(rp), key=lambda x: x.name.lower()):
+        if e.is_file() and e.name.lower().endswith(".pkg") and not e.name.startswith("."):
+            st = e.stat()
+            items.append({"path": e.path, "name": e.name, "size": st.st_size, "mtime": st.st_mtime,
+                          "checks": check_result(e.path, st)})
+    items.sort(key=lambda x: -x["mtime"])
+    return {"dir": rp, "items": items}
+
+
+def enqueue_check(path, mode):
+    path = safe_path(path)
+    if not path.lower().endswith(".pkg"):
+        raise JobError("Nur .pkg-Dateien können geprüft werden")
+    for c in CHECKS.values():
+        if c["path"] == path and c["mode"] == mode and c["status"] in ("queued", "running"):
+            return c
+    c = {"id": uuid.uuid4().hex[:8], "path": path, "name": os.path.basename(path), "mode": mode,
+         "status": "queued", "created": time.time(), "started": None, "finished": None,
+         "size": os.path.getsize(path), "read": 0, "summary": "", "output": "", "ok": None}
+    with CHECK_CV:
+        CHECKS[c["id"]] = c
+        CHECK_ORDER.append(c["id"])
+        while len(CHECK_ORDER) > 30:
+            old = CHECK_ORDER.pop(0)
+            if CHECKS.get(old, {}).get("status") not in ("queued", "running"):
+                CHECKS.pop(old, None)
+        CHECK_CV.notify_all()
+    LOG.info("check %s queued: %s %s", c["id"], mode, path)
+    return c
+
+
+def run_check(c):
+    cmd = [CLI, "verify", c["path"]] + (["--full"] if c["mode"] == "full" else [])
+    c["status"], c["started"] = "running", time.time()
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+    c["_proc"] = proc
+    reader = threading.Thread(target=lambda: c.__setitem__("output", proc.stdout.read().decode("utf-8", "replace")),
+                              daemon=True)
+    reader.start()
+    base = None
+    while proc.poll() is None:
+        try:
+            rchar = int(re.search(r"rchar: (\d+)", open(f"/proc/{proc.pid}/io").read()).group(1))
+            base = rchar if base is None else base
+            c["read"] = rchar
+        except Exception:
+            pass
+        time.sleep(0.5)
+    reader.join(5)
+    rc = proc.returncode
+    out = c["output"]
+    m = RX_PASSED.search(out)
+    c["ok"] = rc == 0 and bool(m)
+    if c.get("cancelled"):
+        c["status"], c["summary"] = "cancelled", "abgebrochen"
+    else:
+        fails = [ln.strip() for ln in out.splitlines() if re.search(r"fail|error|mismatch|invalid", ln, re.I)]
+        c["summary"] = (f"{m.group(2)} Prüfungen bestanden ({m.group(3)})" if m and c["ok"]
+                        else (fails[0][:300] if fails else (out.strip().splitlines() or ["kein Ergebnis"])[-1][:300]))
+        c["status"] = "ok" if c["ok"] else "failed"
+        record_check(c["path"], c["mode"], c["ok"], c["summary"], time.time() - c["started"])
+    c["finished"] = time.time()
+    c.pop("_proc", None)
+    LOG.info("check %s %s: %s", c["id"], c["status"], c["summary"])
+
+
+def check_worker():
+    while True:
+        with CHECK_CV:
+            while True:
+                nxt = next((CHECKS[i] for i in CHECK_ORDER if CHECKS.get(i, {}).get("status") == "queued"), None)
+                if nxt:
+                    break
+                CHECK_CV.wait(5)
+        try:
+            run_check(nxt)
+        except Exception as e:
+            nxt.update(status="failed", summary=f"{type(e).__name__}: {e}", finished=time.time())
+            LOG.exception("check failed")
+
+
+def public_check(c):
+    return {k: v for k, v in c.items() if not k.startswith("_") and k != "output"} | {
+        "output": c["output"][-6000:] if c["status"] not in ("queued", "running") else ""}
+
+
 # ---------------------------------------------------------------- diagnostics
 _INFO_CACHE = {"t": 0, "v": None}
 
@@ -1683,6 +1846,13 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, diag())
             if u.path == "/api/settings":
                 return self.send(200, public_settings())
+            if u.path == "/api/packages":
+                return self.send(200, list_packages(q.get("dir") or DEF_OUT))
+            if u.path == "/api/packages/info":
+                return self.send(200, pkg_info(safe_path(q.get("path", ""))))
+            if u.path == "/api/checks":
+                with CHECK_CV:
+                    return self.send(200, [public_check(CHECKS[i]) for i in reversed(CHECK_ORDER) if i in CHECKS])
             if u.path == "/api/watch":
                 with WATCH_LOCK:
                     items = [{"key": k, "name": v["name"], "state": v["state"], "job": v.get("job")}
@@ -1736,6 +1906,7 @@ class H(BaseHTTPRequestHandler):
                     "cleanup": bool(b.get("cleanup")),
                     "delete_archive": bool(b.get("delete_archive")),
                     "checksum": bool(b.get("checksum", True)),
+                    "full_verify": bool(b.get("full_verify")),
                     "origin": "manual",
                 }
                 if params["delete_archive"] and classify(params["source"])[0] != "archive":
@@ -1783,6 +1954,32 @@ class H(BaseHTTPRequestHandler):
                                          SETTINGS.get("webui_url") or None)
                 LOG.info("pushover test: %s", "ok" if ok else info)
                 return self.send(200 if ok else 400, {"ok": ok, "info": info} if ok else {"error": info})
+            if u.path == "/api/checks":
+                b = self.body()
+                mode = "full" if b.get("mode") == "full" else "quick"
+                return self.send(200, public_check(enqueue_check((b.get("path") or "").strip(), mode)))
+            m = re.match(r"^/api/checks/(\w+)/cancel$", u.path)
+            if m and m.group(1) in CHECKS:
+                c = CHECKS[m.group(1)]
+                if c["status"] == "queued":
+                    c.update(status="cancelled", summary="abgebrochen", finished=time.time())
+                elif c["status"] == "running" and c.get("_proc"):
+                    c["cancelled"] = True
+                    try:
+                        os.killpg(c["_proc"].pid, signal.SIGTERM)
+                    except OSError:
+                        pass
+                LOG.info("check %s cancel", c["id"])
+                return self.send(200, {"ok": True})
+            if u.path == "/api/jobs/clear-history":
+                with LOCK:
+                    gone = [i for i in ORDER if JOBS[i].status in ("done", "failed", "cancelled")]
+                    for i in gone:
+                        ORDER.remove(i)
+                        JOBS.pop(i)
+                save_jobs()
+                LOG.info("history cleared: %d jobs", len(gone))
+                return self.send(200, {"removed": len(gone)})
             if u.path == "/api/watch/scan":
                 WATCH_KICK.set()
                 return self.send(200, {"ok": True})
@@ -1809,6 +2006,8 @@ def main():
     LOG.info("fpkg-cli: %s", "ok" if rc == 0 else f"FEHLER rc={rc}: {info[:300]}")
     load_settings()
     load_watch()
+    load_checks()
+    threading.Thread(target=check_worker, daemon=True, name="checks").start()
     load_jobs()
     threading.Thread(target=prep_worker, daemon=True, name="prep").start()
     threading.Thread(target=build_worker, daemon=True, name="build").start()

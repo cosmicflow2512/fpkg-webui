@@ -42,7 +42,9 @@ button:disabled{opacity:.5;cursor:default}
 .opts label.off{opacity:.45}
 .opts small{display:block;color:var(--muted)}
 details{margin-top:12px} summary{cursor:pointer;font-size:13px;color:var(--muted)}
-.tabs{display:flex;gap:4px;margin:-4px 0 12px;border-bottom:1px solid var(--line)}
+.tabs{display:flex;gap:4px;margin:-4px 0 12px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+@media (max-width:480px){.tabs button{padding:8px 9px}}
 .tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:8px 12px;color:var(--muted);font-weight:600}
 .tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
 .jobs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;max-height:230px;overflow:auto}
@@ -59,8 +61,32 @@ details{margin-top:12px} summary{cursor:pointer;font-size:13px;color:var(--muted
 .set h3{margin:18px 0 6px} .set h3:first-child{margin-top:0}
 .set .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px}
 .wl{font-size:13px;margin-top:8px} .wl div{display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)} .wl .n{flex:1;word-break:break-all} .wl .st{color:var(--muted);font-size:12px}
-.detail-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
-.detail-head .step{flex:1;min-width:200px;font-weight:600}
+.sec{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:2px 0 6px}
+.sec .n{font-weight:600;color:var(--muted)}
+details.hist{margin:4px 0 14px} details.hist summary{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px}
+.dhead{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:var(--panel2)}
+.dtitle{font-weight:700;font-size:15px;word-break:break-all}
+.dsub{display:flex;gap:8px;align-items:center;margin-top:4px;font-size:13px;color:var(--muted)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.actions .sp{flex:1}
+details.menu{position:relative}
+details.menu summary{list-style:none;cursor:pointer;border:1px solid var(--line);background:var(--panel2);border-radius:7px;padding:8px 12px;font-size:13px}
+details.menu summary::-webkit-details-marker{display:none}
+details.menu .mbox{position:absolute;right:0;top:calc(100% + 4px);z-index:5;min-width:240px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);padding:4px}
+details.menu .mbox button{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 10px;border-radius:6px}
+details.menu .mbox button:hover{background:var(--panel2)}
+details.menu .mbox small{display:block;color:var(--muted);font-size:11px}
+#cf{width:min(520px,94vw)} #cf .cb{padding:16px 18px} #cf h3{margin:0 0 10px;font-size:16px}
+#cf ul{margin:0;padding-left:18px;font-size:14px;line-height:1.55} #cf .cfoot{display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line)}
+button.dangerfill{background:var(--err);border-color:var(--err);color:#fff;font-weight:600}
+.pk{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--panel2)}
+.pk .pn{font-family:var(--mono);font-size:12px;word-break:break-all;font-weight:600}
+.pk .pm{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--muted);margin:4px 0 8px;align-items:center}
+.badge{font-size:11px;font-weight:700;padding:1px 7px;border-radius:99px;border:1px solid currentColor}
+.b-ok{color:var(--ok)} .b-bad{color:var(--err)} .b-none{color:var(--muted)}
+.pk .pinfo{font-size:12px;margin-top:8px;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px 12px}
+.pk .pinfo dt{color:var(--muted)} .pk .pinfo dd{margin:0;font-family:var(--mono);word-break:break-all}
+.chk{border:1px solid var(--run);border-radius:8px;padding:10px 12px;margin-bottom:10px}
 .steps{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0 0 10px;padding:0;list-style:none;font-size:12px}
 .steps li{display:flex;gap:6px;align-items:center;color:var(--muted)}
 .steps li::before{content:"";width:9px;height:9px;border-radius:50%;border:2px solid var(--line)}
@@ -84,6 +110,8 @@ pre.log{background:var(--log-bg);color:var(--log-ink);font:12px/1.45 var(--mono)
 .kv dt{color:var(--muted)} .kv dd{margin:0;font-family:var(--mono);word-break:break-all}
 table.t{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px}
 table.t td,table.t th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+table.t td{word-break:break-word;overflow-wrap:anywhere}
+#tab-diag{min-width:0;overflow-wrap:anywhere}
 table.t th{color:var(--muted);font-weight:600}
 .okc{color:var(--ok);font-weight:700} .bad{color:var(--err);font-weight:700}
 h3{font-size:13px;margin:16px 0 8px}
@@ -132,6 +160,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       <div class="row"><input id="work" type="text"><button data-pick="work" data-dir="1" title="Durchsuchen">…</button></div>
       <div class="hint" id="work-hint"></div>
       <div class="opts">
+        <label><input type="checkbox" id="full_verify"><span>Vollprüfung nach dem Bauen<small>liest das ganze Paket und dekomprimiert jede Datei – dauert länger</small></span></label>
         <label><input type="checkbox" id="keep_ampr"><span>AMPR-Reste behalten (--keep-ampr)<small>betrifft nur ampr_emu.index; fakelib/libSceAmpr.sprx entfernt der Builder immer</small></span></label>
         <label><input type="checkbox" id="keep_dump"><span>Dump-Reste behalten (--keep-dump-leftovers)<small>_DUBLEX_, Unreal Engine/Saved, &lt;Projekt&gt;/Saved</small></span></label>
       </div>
@@ -141,19 +170,28 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   </section>
 
   <section class="card">
-    <div class="tabs"><button class="on" data-tab="jobs">Aufträge</button><button data-tab="set">Einstellungen</button><button data-tab="diag">Diagnose</button></div>
+    <div class="tabs"><button class="on" data-tab="jobs">Aufträge</button><button data-tab="pkgs">Pakete</button><button data-tab="set">Einstellungen</button><button data-tab="diag">Diagnose</button></div>
 
     <div id="tab-jobs">
-      <div class="jobs" id="jobs"><div class="empty">Noch keine Aufträge</div></div>
+      <div class="sec">Aktiv <span class="n" id="cnt-act"></span></div>
+      <div class="jobs" id="jobs-act"><div class="empty" style="padding:10px 0">nichts in Arbeit</div></div>
+      <details class="hist" id="hist"><summary>Verlauf <span id="cnt-hist"></span></summary>
+        <div class="jobs" id="jobs-hist"></div>
+        <button id="b-clear" style="margin-bottom:6px">Verlauf leeren …</button>
+      </details>
       <div id="detail" style="display:none">
-        <div class="detail-head">
-          <span class="chip" id="d-chip"></span><span class="step" id="d-step"></span>
-          <button class="go" id="b-continue" style="display:none">Bauen</button>
-          <button class="danger" id="b-cancel">Abbrechen</button>
-          <button id="b-retry" title="Mit denselben Einstellungen neu starten">Neu starten</button>
-          <button id="b-cleanup" title="Arbeitsordner dieses Auftrags löschen">Arbeitsordner löschen</button>
+        <div class="dhead"><div class="dtitle" id="d-title"></div><div class="dsub"><span class="chip" id="d-chip"></span><span id="d-step"></span></div></div>
+        <div class="actions">
+          <button class="go" id="b-continue" style="display:none">Bauen starten</button>
+          <button id="b-check" style="display:none">Paket prüfen</button>
+          <button id="b-retry" style="display:none" title="Mit denselben Einstellungen neu einreihen">Neu starten</button>
           <button id="b-dl" title="Log als Datei herunterladen">Log ↓</button>
-          <button id="b-delete" title="Aus der Liste entfernen">Entfernen</button>
+          <span class="sp"></span>
+          <details class="menu" id="b-menu"><summary>⋯ Mehr</summary><div class="mbox">
+            <button id="m-cancel" class="danger">Auftrag abbrechen …<small>stoppt nur diesen Auftrag</small></button>
+            <button id="m-cleanup">Arbeitsordner löschen …<small>entpackte Daten dieses Auftrags</small></button>
+            <button id="m-delete">Aus Liste entfernen<small>Paket und Quelle bleiben erhalten</small></button>
+          </div></details>
         </div>
         <ul class="steps" id="d-steps"></ul>
         <div id="d-progress">
@@ -164,6 +202,13 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
         <ul class="warns" id="d-warns"></ul>
         <pre class="log" id="d-log"></pre>
       </div>
+    </div>
+
+    <div id="tab-pkgs" style="display:none">
+      <div class="row" style="margin-bottom:10px"><input id="pk-dir" type="text"><button data-pick="pk-dir" data-dir="1" title="Ordner wählen">…</button><button id="pk-refresh">Aktualisieren</button></div>
+      <div id="chk-run"></div>
+      <div id="pk-list"><div class="empty">lädt …</div></div>
+      <p class="hint">Schnellprüfung: Struktur, Signaturen und Prüfsummen der Metadaten (Sekunden). Vollprüfung: zusätzlich jeden Block lesen und jede Datei dekomprimieren (dauert bei großen Paketen Minuten). Prüfungen ändern nichts am Paket und laufen unabhängig von den Aufträgen.</p>
     </div>
 
     <div id="tab-set" class="set" style="display:none">
@@ -228,6 +273,9 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   </section>
 </main>
 
+<dialog id="cf"><div class="cb"><h3 id="cf-t"></h3><ul id="cf-b"></ul></div>
+  <div class="cfoot"><button id="cf-no" autofocus></button><button class="dangerfill" id="cf-yes"></button></div></dialog>
+
 <dialog id="fb">
   <div class="fb-head"><button id="fb-up" title="Eine Ebene höher">↑</button><button id="fb-home" title="Freigegebene Ordner">⌂</button><div class="fb-path" id="fb-path"></div></div>
   <div class="fb-list" id="fb-list"></div>
@@ -252,7 +300,7 @@ const ACTIVE = ['queued','running','waiting','ready'];
 let CFG = {}, sel = null, logOff = -1, logFor = null, srcKind = null;
 
 // ---------- form persistence (per browser)
-const FIELDS = ['src','fix','out','work','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum'];
+const FIELDS = ['src','fix','out','work','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'];
 function saveForm(){ try{ const o={}; FIELDS.forEach(k=>{const e=$('#'+k); o[k]=e.type==='checkbox'?e.checked:e.value}); localStorage.setItem('fpkg-form', JSON.stringify(o)); }catch(e){} }
 function loadForm(){ try{ const o=JSON.parse(localStorage.getItem('fpkg-form')||'{}'); FIELDS.forEach(k=>{ if(k in o && k!=='delete_archive'){const e=$('#'+k); if(e.type==='checkbox') e.checked=o[k]; else e.value=o[k];} }); }catch(e){} }
 
@@ -316,7 +364,7 @@ async function fbLoad(p){
     L.appendChild(d);
   });
 }
-function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); if(fbTarget.startsWith('s-')) return; saveForm(); if(fbTarget==='src'||fbTarget==='fix') probe(fbTarget); else freeHint(fbTarget); }
+function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); if(fbTarget==='pk-dir') return loadPkgs(); if(fbTarget.startsWith('s-')) return; saveForm(); if(fbTarget==='src'||fbTarget==='fix') probe(fbTarget); else freeHint(fbTarget); }
 $('#fb-here').onclick = () => fbPath && choose(fbPath);
 $('#fb-home').onclick = () => fbLoad('');
 $('#fb-cancel').onclick = () => $('#fb').close();
@@ -324,14 +372,14 @@ document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => fbOpen(b
 $('#fix-clear').onclick = () => { $('#fix').value=''; saveForm(); probe('fix'); };
 ['src','fix'].forEach(id => $('#'+id).addEventListener('input', ()=>{ saveForm(); probeLater(id); }));
 ['out','work'].forEach(id => $('#'+id).addEventListener('change', ()=>{ saveForm(); freeHint(id); }));
-['preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum'].forEach(id => $('#'+id).addEventListener('change', saveForm));
+['preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'].forEach(id => $('#'+id).addEventListener('change', saveForm));
 
 // ---------- start
 $('#start').onclick = async () => {
   $('#start-err').textContent='';
   const b = {source:$('#src').value.trim(), fix:$('#fix').value.trim(), out:$('#out').value.trim(), work:$('#work').value.trim(),
              preset:$('#preset').value, confirm:$('#confirm').checked, cleanup:$('#cleanup').checked,
-             keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked, checksum:$('#checksum').checked};
+             keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked, checksum:$('#checksum').checked, full_verify:$('#full_verify').checked};
   if (!b.source){ $('#start-err').textContent='Quelle fehlt'; return; }
   if (b.delete_archive && !confirm('Das Quellarchiv wird nach erfolgreichem Entpacken GELÖSCHT. Fortfahren?')) return;
   $('#start').disabled=true;
@@ -342,42 +390,64 @@ $('#start').onclick = async () => {
 
 // ---------- tabs
 let curTab='jobs';
-function showTab(t){ curTab=t; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on', b.dataset.tab===t)); ['jobs','set','diag'].forEach(x=>$('#tab-'+x).style.display=t===x?'':'none'); if(t==='diag') loadDiag(); if(t==='set') loadSettings(); }
+function showTab(t){ curTab=t; document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on', b.dataset.tab===t)); ['jobs','pkgs','set','diag'].forEach(x=>$('#tab-'+x).style.display=t===x?'':'none'); if(t==='diag') loadDiag(); if(t==='set') loadSettings(); if(t==='pkgs') loadPkgs(); }
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
-// ---------- jobs
-function title(j){ const s=j.params.source.split('/').pop(); return j.params.fix ? s+'  +  '+j.params.fix.split('/').pop() : s; }
-function overall(j){ if(!j.plan||!j.plan.length) return null; const n=j.plan.length; const d=j.plan.filter(x=>x.state==='done').length; const a=j.plan.findIndex(x=>x.state==='active'); const pct=(j.prog&&j.prog.pct!=null)?j.prog.pct/100:0; return Math.min(100,((d+(a>=0?pct:0))/n)*100); }
-async function refresh(){
-  let jobs; try{ jobs = await api('/api/jobs'); }catch(e){ return; }
-  const box=$('#jobs');
-  if (!jobs.length){ box.innerHTML='<div class="empty">Noch keine Aufträge</div>'; $('#detail').style.display='none'; return; }
-  if (!sel || !jobs.find(j=>j.id===sel)) sel = jobs[0].id;
-  box.innerHTML='';
-  jobs.forEach(j=>{
-    const d=document.createElement('div'); d.className='job'+(j.id===sel?' sel':'');
-    const ov = ['running','waiting','ready'].includes(j.status) ? overall(j) : null;
-    d.innerHTML=`<span class="chip c-${j.status}">${STATUS[j.status]||j.status}</span><div style="min-width:0"><div class="t">${esc(title(j))}${j.origin==="watch"?'<span class="tag">auto</span>':''}</div><div class="s">${esc(j.error||j.step||'')}</div>${ov!=null?`<div class="mini"><i style="width:${ov.toFixed(1)}%"></i></div>`:''}</div><span class="s">${new Date(j.created*1000).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>`;
-    d.onclick=()=>select(j.id);
-    box.appendChild(d);
+// ---------- confirm dialog (safe default = keep going)
+function ask(title, bullets, yes, no='Zurück'){
+  return new Promise(res=>{
+    $('#cf-t').textContent=title; $('#cf-b').innerHTML=bullets.map(b=>`<li>${b}</li>`).join('');
+    $('#cf-yes').textContent=yes; $('#cf-no').textContent=no;
+    const d=$('#cf'); const done=v=>{ d.close(); res(v); };
+    $('#cf-yes').onclick=()=>done(true); $('#cf-no').onclick=()=>done(false); d.oncancel=()=>res(false);
+    d.showModal(); $('#cf-no').focus();
   });
 }
-function select(id){ sel=id; logOff=-1; logFor=null; $('#d-log').textContent=''; refresh(); pollLog(); }
+
+// ---------- jobs
+let JOBLIST=[], curJob=null;
+function title(j){ const s=j.params.source.split('/').pop(); return j.params.fix ? s+'  +  '+j.params.fix.split('/').pop() : s; }
+function overall(j){ if(!j.plan||!j.plan.length) return null; const n=j.plan.length; const d=j.plan.filter(x=>x.state==='done').length; const a=j.plan.findIndex(x=>x.state==='active'); const pct=(j.prog&&j.prog.pct!=null)?j.prog.pct/100:0; return Math.min(100,((d+(a>=0?pct:0))/n)*100); }
+function jobRow(j){
+  const d=document.createElement('div'); d.className='job'+(j.id===sel?' sel':'');
+  const ov = ['running','waiting','ready'].includes(j.status) ? overall(j) : null;
+  d.innerHTML=`<span class="chip c-${j.status}">${STATUS[j.status]||j.status}</span><div style="min-width:0"><div class="t">${esc(title(j))}${j.origin==="watch"?'<span class="tag">auto</span>':''}</div><div class="s">${esc(j.error||j.step||'')}</div>${ov!=null?`<div class="mini"><i style="width:${ov.toFixed(1)}%"></i></div>`:''}</div><span class="s">${new Date(j.created*1000).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>`;
+  d.onclick=()=>select(j.id);
+  return d;
+}
+async function refresh(){
+  let jobs; try{ jobs = await api('/api/jobs'); }catch(e){ return; }
+  JOBLIST=jobs;
+  const act=jobs.filter(j=>ACTIVE.includes(j.status)).reverse(), hist=jobs.filter(j=>!ACTIVE.includes(j.status));
+  $('#cnt-act').textContent = act.length ? '('+act.length+')' : '';
+  $('#cnt-hist').textContent = '('+hist.length+')';
+  const A=$('#jobs-act'), H=$('#jobs-hist');
+  A.innerHTML = act.length ? '' : '<div class="empty" style="padding:10px 0">nichts in Arbeit</div>';
+  act.forEach(j=>A.appendChild(jobRow(j)));
+  H.innerHTML = hist.length ? '' : '<div class="empty" style="padding:10px 0">leer</div>';
+  hist.forEach(j=>H.appendChild(jobRow(j)));
+  $('#b-clear').style.display = hist.length ? '' : 'none';
+  if (!jobs.length){ $('#detail').style.display='none'; sel=null; return; }
+  if (!sel || !jobs.find(j=>j.id===sel)) { sel = (act[0]||jobs[0]).id; logOff=-1; logFor=null; }
+  if (hist.find(j=>j.id===sel)) $('#hist').open = true;
+}
+function select(id){ sel=id; logOff=-1; logFor=null; $('#d-log').textContent=''; $('#b-menu').open=false; refresh(); pollLog(); }
 function renderJob(j){
+  curJob=j;
   $('#detail').style.display='';
+  $('#d-title').textContent = title(j);
   $('#d-chip').className='chip c-'+j.status; $('#d-chip').textContent=STATUS[j.status]||j.status;
-  $('#d-step').textContent = j.error ? j.error : j.step;
+  $('#d-step').textContent = j.status==='ready' ? 'bereit – wartet auf freien Build-Platz' : (j.error ? j.error : j.step);
   const act=ACTIVE.includes(j.status);
   $('#b-continue').style.display = j.status==='waiting'?'':'none';
-  $('#b-cancel').style.display = act?'':'none';
-  $('#b-cleanup').style.display = act?'none':'';
-  $('#b-delete').style.display = act?'none':'';
+  $('#b-check').style.display = (j.status==='done' && j.result && j.result.pkg)?'':'none';
   $('#b-retry').style.display = ['failed','cancelled'].includes(j.status)?'':'none';
-  $('#b-retry').onclick = async () => { const p=j.params; try{ const n = await post('/api/jobs', {...p, source:p.source, fix:p.fix||'', delete_archive:false}); select(n.id); }catch(e){ alert(e.message); } };
+  $('#m-cancel').style.display = act?'':'none';
+  $('#m-cleanup').style.display = act?'none':'';
+  $('#m-delete').style.display = act?'none':'';
   $('#d-steps').innerHTML = (j.plan||[]).map(x=>`<li class="${x.state}">${esc(x.label)}</li>`).join('');
   const pr = j.prog||{}, bar=$('#d-bar');
   const showBar = j.status==='running';
-  if (j.status==='ready') { $('#d-step').textContent = 'bereit – wartet auf freien Build-Platz'; }
   $('#d-progress').style.display = showBar ? '' : 'none';
   if (showBar){
     const indet = pr.pct==null;
@@ -390,7 +460,7 @@ function renderJob(j){
   const res=$('#d-result');
   if (j.result){
     const x=j.result; res.style.display='block';
-    res.innerHTML = `Paket: <b>${esc(x.pkg)}</b><br>${esc(x.title||'')} · ${esc(x.content_id||'')} · Version ${esc(x.version||'?')} · Firmware ${esc(x.fw||'?')} · ${human(x.size)} · verify ${x.verify?'<span class="okc">OK</span>':'<span class="bad">FEHLER</span>'}${x.duration?' · Dauer '+dur(x.duration):''}`
+    res.innerHTML = `Paket: <b>${esc(x.pkg)}</b><br>${esc(x.title||'')} · ${esc(x.content_id||'')} · Version ${esc(x.version||'?')} · Firmware ${esc(x.fw||'?')} · ${human(x.size)} · ${x.verify_mode==='full'?'Vollprüfung':'Schnellprüfung'} ${x.verify?'<span class="okc">OK</span>':'<span class="bad">FEHLER</span>'}${x.duration?' · Dauer '+dur(x.duration):''}`
       + (x.fix_missing && x.fix_missing.length ? `<br><span style="color:var(--warn)">nicht im Paket: ${esc(x.fix_missing.join(', '))}</span>` : (x.fix_missing ? '<br><span style="color:var(--ok)">alle Fix-Dateien im Paket</span>' : ''));
   } else res.style.display='none';
   $('#d-warns').innerHTML = (j.warnings||[]).map(w=>`<li>${esc(w)}</li>`).join('');
@@ -406,11 +476,70 @@ async function pollLog(){
   logOff = r.offset;
   renderJob(r.job);
 }
+function cancelBullets(j){
+  const p=j.params, b=[];
+  const archGone = p.delete_archive && (j.plan||[]).some(x=>x.label==='Quelle entpacken' && x.state==='done');
+  if (j.status==='running') b.push(`Der laufende Schritt <b>${esc(j.step)}</b> wird gestoppt${j.phase==='build'?' – das halb gebaute Paket wird verworfen':''}.`);
+  else if (j.status==='queued') b.push('Der Auftrag wird aus der Warteschlange genommen, es wurde noch nichts gemacht.');
+  else b.push('Der vorbereitete Auftrag wird nicht gebaut.');
+  b.push(archGone ? '<b>Das Quellarchiv wurde bereits gelöscht</b> – der Arbeitsordner mit den entpackten Daten bleibt deshalb erhalten.'
+                  : 'Deine Quelldateien (Archiv, Image, Ordner, Fix) bleiben unverändert.');
+  if (!archGone && j.status!=='queued') b.push(p.cleanup ? 'Der Arbeitsordner dieses Auftrags wird gelöscht.' : 'Der Arbeitsordner bleibt erhalten.');
+  b.push('Fertige Pakete und andere Aufträge sind nicht betroffen. Du kannst den Auftrag danach mit „Neu starten“ wiederholen.');
+  return b;
+}
 $('#b-continue').onclick = () => post(`/api/jobs/${sel}/continue`).then(pollLog);
-$('#b-cancel').onclick = () => confirm('Auftrag abbrechen?') && post(`/api/jobs/${sel}/cancel`).then(pollLog);
-$('#b-cleanup').onclick = () => confirm('Arbeitsordner dieses Auftrags löschen?') && post(`/api/jobs/${sel}/cleanup`).then(pollLog);
 $('#b-dl').onclick = () => { location.href = `/api/jobs/${sel}/download`; };
-$('#b-delete').onclick = () => post(`/api/jobs/${sel}/delete`).then(()=>{ sel=null; refresh().then(pollLog); });
+$('#b-retry').onclick = async () => { const p=curJob.params; try{ const n = await post('/api/jobs', {...p, fix:p.fix||'', delete_archive:false}); select(n.id); }catch(e){ alert(e.message); } };
+$('#b-check').onclick = async () => { const pkg=curJob.result.pkg; showTab('pkgs'); try{ await post('/api/checks',{path:pkg, mode:'full'}); }catch(e){ alert(e.message); } loadPkgs(); };
+$('#m-cancel').onclick = async () => { $('#b-menu').open=false; const j=curJob; if (await ask(`„${title(j)}“ abbrechen?`, cancelBullets(j), 'Ja, Auftrag abbrechen', 'Weiterlaufen lassen')) { await post(`/api/jobs/${j.id}/cancel`); pollLog(); } };
+$('#m-cleanup').onclick = async () => { $('#b-menu').open=false; const j=curJob; if (await ask('Arbeitsordner löschen?', [`Löscht die entpackten Daten dieses Auftrags (<span style="font-family:var(--mono)">job-${esc(j.id)}</span>).`, 'Das fertige Paket und deine Quelldateien bleiben erhalten.'], 'Arbeitsordner löschen')) { await post(`/api/jobs/${j.id}/cleanup`); pollLog(); } };
+$('#m-delete').onclick = async () => { $('#b-menu').open=false; await post(`/api/jobs/${sel}/delete`); sel=null; refresh().then(pollLog); };
+$('#b-clear').onclick = async () => { if (await ask('Verlauf leeren?', ['Entfernt alle fertigen, fehlgeschlagenen und abgebrochenen Aufträge aus der Liste.', 'Laufende und wartende Aufträge bleiben.', 'Fertige Pakete, Quelldateien und Arbeitsordner werden <b>nicht</b> gelöscht.'], 'Verlauf leeren')) { await post('/api/jobs/clear-history'); sel=null; refresh().then(pollLog); } };
+document.addEventListener('click', e=>{ const m=$('#b-menu'); if (m.open && !m.contains(e.target)) m.open=false; });
+
+// ---------- packages
+const BADGE = (r, label) => r ? `<span class="badge ${r.ok?'b-ok':'b-bad'}" title="${esc(r.summary||'')} · ${new Date(r.time*1000).toLocaleString('de-DE')}">${label} ${r.ok?'✓':'✗'}</span>` : `<span class="badge b-none">${label} –</span>`;
+let PKINFO = {};
+async function loadPkgs(){
+  const dir = $('#pk-dir').value.trim() || CFG.out;
+  try{
+    const r = await api('/api/packages?dir='+encodeURIComponent(dir));
+    $('#pk-list').innerHTML = r.items.length ? '' : '<div class="empty">Keine .pkg-Dateien in diesem Ordner</div>';
+    r.items.forEach(it=>{
+      const c=it.checks||{}, d=document.createElement('div'); d.className='pk';
+      const inf=PKINFO[it.path];
+      d.innerHTML = `<div class="pn">${esc(it.name)}</div>
+        <div class="pm"><span>${human(it.size)}</span><span>${new Date(it.mtime*1000).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>${BADGE(c.quick,'Schnell')}${BADGE(c.full,'Voll')}</div>
+        <div class="row" style="flex-wrap:wrap"><button data-a="info">Info</button><button data-a="quick">Schnellprüfung</button><button data-a="full">Vollprüfung</button></div>
+        ${inf?`<dl class="pinfo">${inf.error?`<dt>Fehler</dt><dd>${esc(inf.error)}</dd>`:''}<dt>Titel</dt><dd>${esc(inf.title||'?')}</dd><dt>Version</dt><dd>${esc(inf.version||'?')}</dd><dt>Firmware</dt><dd>${esc(inf.fw_label||'?')} (${esc(inf.fw||'?')})</dd><dt>SDK</dt><dd>${esc(inf.sdk||'?')}</dd><dt>Content ID</dt><dd>${esc(inf.content_id||'?')}</dd><dt>Typ</dt><dd>${esc(inf.type||'?')}</dd>${c.full?`<dt>Vollprüfung</dt><dd>${esc(c.full.summary)}</dd>`:''}${c.quick?`<dt>Schnellprüfung</dt><dd>${esc(c.quick.summary)}</dd>`:''}</dl>`:''}`;
+      d.querySelector('[data-a=info]').onclick = async () => { if (PKINFO[it.path]) { delete PKINFO[it.path]; return loadPkgs(); } PKINFO[it.path] = await api('/api/packages/info?path='+encodeURIComponent(it.path)).catch(e=>({error:e.message})); loadPkgs(); };
+      d.querySelector('[data-a=quick]').onclick = () => post('/api/checks',{path:it.path,mode:'quick'}).then(loadChecks).catch(e=>alert(e.message));
+      d.querySelector('[data-a=full]').onclick = () => post('/api/checks',{path:it.path,mode:'full'}).then(loadChecks).catch(e=>alert(e.message));
+      $('#pk-list').appendChild(d);
+    });
+  }catch(e){ $('#pk-list').innerHTML = `<div class="hint err">${esc(e.message)}</div>`; }
+  loadChecks();
+}
+let lastRunning = 0;
+async function loadChecks(){
+  let cs; try{ cs = await api('/api/checks'); }catch(e){ return; }
+  const live = cs.filter(c=>['queued','running'].includes(c.status));
+  const recent = cs.filter(c=>!['queued','running'].includes(c.status) && c.finished && Date.now()/1000-c.finished < 120);
+  $('#chk-run').innerHTML = live.concat(recent).map(c=>{
+    const el = c.started ? Date.now()/1000 - c.started : 0;
+    const spd = el>1 ? c.read/el : 0;
+    const head = `<div class="row" style="align-items:center"><div style="flex:1;min-width:0"><b>${c.mode==='full'?'Vollprüfung':'Schnellprüfung'}</b> · <span style="font-family:var(--mono);font-size:12px;word-break:break-all">${esc(c.name)}</span></div>${['queued','running'].includes(c.status)?`<button data-cancel="${c.id}" title="Nur die Prüfung stoppen – am Paket ändert sich nichts">Prüfung stoppen</button>`:''}</div>`;
+    if (c.status==='running') return `<div class="chk">${head}<div class="bar indet" style="margin-top:8px"><i></i><span>läuft · ${human(c.read)} gelesen · ${human(spd)}/s · seit ${dur(el)}</span></div></div>`;
+    if (c.status==='queued') return `<div class="chk">${head}<div class="hint">wartet – Prüfungen laufen nacheinander</div></div>`;
+    return `<div class="chk" style="border-color:var(--line)">${head}<div class="hint ${c.ok?'ok':(c.status==='cancelled'?'':'err')}">${c.status==='cancelled'?'gestoppt':(c.ok?'OK – ':'FEHLER – ')+esc(c.summary)}</div></div>`;
+  }).join('');
+  document.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>post(`/api/checks/${b.dataset.cancel}/cancel`).then(loadChecks));
+  if (lastRunning && !live.length) loadPkgsQuiet();
+  lastRunning = live.length;
+}
+async function loadPkgsQuiet(){ const keep=window.scrollY; await loadPkgs(); window.scrollTo(0,keep); }
+$('#pk-refresh').onclick = loadPkgs;
 
 // ---------- diagnostics
 async function loadDiag(){
@@ -464,11 +593,11 @@ $('#w-scan').onclick = () => post('/api/watch/scan').then(()=>setTimeout(loadWat
 (async () => {
   CFG = await api('/api/config');
   $('#ver').textContent = 'v'+CFG.version;
-  $('#out').value = CFG.out; $('#work').value = CFG.work;
+  $('#out').value = CFG.out; $('#work').value = CFG.work; $('#pk-dir').value = CFG.out;
   loadForm(); updDel();
   probe('src'); probe('fix'); freeHint('out'); freeHint('work');
   await refresh(); pollLog();
-  setInterval(refresh, 3000); setInterval(pollLog, 1200); setInterval(()=>{ if(curTab==='set') loadWatch(); }, 5000);
+  setInterval(refresh, 3000); setInterval(pollLog, 1200); setInterval(()=>{ if(curTab==='set') loadWatch(); }, 5000); setInterval(()=>{ if(curTab==='pkgs') loadChecks(); }, 1500);
   try{ const s=await api('/api/settings'); if(!localStorage.getItem('fpkg-form')) $('#checksum').checked=!!s.checksum; }catch(e){}
 })();
 </script>
