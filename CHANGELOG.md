@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1 – 2026-10-03
+- Passwortgeschützte Archive (7z, RAR/RAR5, ZIP, auch mehrteilig): Erkennung schon bei der Quellauswahl, Feld „Archiv-Passwort“ im Auftrag, Passwortliste unter Einstellungen → Archiv-Passwörter (eine Zeile pro Passwort, wird der Reihe nach probiert)
+- Ohne passendes Passwort bricht der Auftrag sofort mit klarer Meldung ab statt mit „Break signaled“ (Exit 255)
+- 7-Zip und alle anderen Befehle laufen ohne Eingabekanal, Rückfragen können den Auftrag nicht mehr hängen lassen
+- Passwort wird in Oberfläche, API, Auftrags-Log und Server-Log maskiert und nicht in jobs.json gespeichert
+- „Neu starten“ läuft jetzt über den Server und übernimmt das Passwort des Auftrags
+
 ## 1.2.0 – 2026-10-03
 - Neuer Reiter „Pakete“: alle fertigen Pakete mit Titel, Version, benötigter Firmware, SDK und Content-ID; Schnell- und Vollprüfung (`verify` / `verify --full`) per Klick, Ergebnis wird gespeichert und als Häkchen angezeigt, Prüfungen laufen unabhängig von den Aufträgen
 - Option „Vollprüfung nach dem Bauen“

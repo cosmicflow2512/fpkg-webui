@@ -28,6 +28,9 @@ Quelle auswählen, optional einen Fix/Backport drüberlegen, „FPKG erstellen�
   wird vor dem Entpacken geprüft – auch über alle Teile mehrteiliger Archive.
 - **Überlappende Warteschlange:** während ein Auftrag baut, wird der nächste schon vorbereitet.
 - **Pushover:** Nachricht bei fertig, Fehler und „wartet auf Freigabe“.
+- **Passwortgeschützte Archive:** Passwort im Auftrag eintragen oder eine Liste unter
+  *Einstellungen → Archiv-Passwörter* hinterlegen (Klartext in `/config/settings.json`).
+  Ohne passendes Passwort bricht der Auftrag mit klarer Meldung ab.
 - **Warteschlange**, Abbrechen, Neu starten, Arbeitsordner aufräumen.
 - **Pakete:** Liste der fertigen Pakete mit Version, benötigter Firmware und SDK; Schnell- und Vollprüfung per Klick.
 - **Sicheres Abbrechen:** Abbrechen nur über das Menü „⋯ Mehr“ mit Dialog, der genau sagt, was passiert.

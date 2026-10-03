@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -331,6 +331,7 @@ DEFAULT_SETTINGS = {
     "watch_cleanup": True,
     "watch_delete_archive": False,
     "watch_after": "move",
+    "archive_passwords": "",
     "pushover_enabled": False,
     "pushover_user": "",
     "pushover_token": "",
@@ -745,9 +746,66 @@ def enqueue(params):
         ORDER.append(j.id)
         QUEUE_CV.notify_all()
     LOG.info("job %s: queued (%s) %s", j.id, params.get("origin", "manual"),
-             json.dumps({k: v for k, v in params.items() if k != "watch_items"}, ensure_ascii=False))
+             json.dumps({k: ("••••" if k == "password" and v else v) for k, v in params.items()
+                         if k != "watch_items"}, ensure_ascii=False))
     save_jobs()
     return j
+
+
+# ---------------------------------------------------------------- archive passwords
+def mask_cmd(cmd):
+    return " ".join(("-p••••" if c.startswith("-p") and len(c) > 2 else (f'"{c}"' if " " in c else c)) for c in cmd)
+
+
+def archive_encryption(archive):
+    """-> (state, listing) with state in none|data|header|unknown; never prompts (empty -p, stdin closed)."""
+    rc, out = cmd_out_stdin([SEVENZ, "l", "-slt", "-p", archive], 300)
+    if rc != 0 and re.search(r"encrypted|wrong password", out, re.I):
+        return "header", out
+    if rc != 0:
+        return "unknown", out
+    return ("data" if "Encrypted = +" in out else "none"), out
+
+
+def password_candidates(job_pw=None):
+    c = []
+    for pw in [job_pw or ""] + SETTINGS.get("archive_passwords", "").splitlines():
+        pw = pw.strip()
+        if pw and pw not in c:
+            c.append(pw)
+    return c
+
+
+def find_password(archive, state, listing, candidates, log=lambda m: None):
+    """Cheapest check that tells right from wrong: listing for header encryption,
+    test of the smallest encrypted file otherwise."""
+    if state == "header":
+        for i, pw in enumerate(candidates, 1):
+            rc, _ = cmd_out_stdin([SEVENZ, "l", f"-p{pw}", archive], 300)
+            log(f"Passwort-Kandidat {i}/{len(candidates)}: {'passt' if rc == 0 else 'falsch'}")
+            if rc == 0:
+                return pw
+        return None
+    files, cur = [], {}
+    for ln in listing.splitlines() + [""]:
+        if not ln.strip():
+            if cur.get("Encrypted") == "+" and cur.get("Folder") != "+" and cur.get("Path"):
+                files.append((int(cur.get("Size") or 0), cur["Path"]))
+            cur = {}
+            continue
+        if " = " in ln:
+            k, v = ln.split(" = ", 1)
+            cur[k.strip()] = v.strip()
+    if not files:
+        return candidates[0] if candidates else None
+    small = min(files)[1]
+    for i, pw in enumerate(candidates, 1):
+        rc, out = cmd_out_stdin([SEVENZ, "t", f"-p{pw}", archive, small], 900)
+        ok = rc == 0 and "Everything is Ok" in out
+        log(f"Passwort-Kandidat {i}/{len(candidates)} (Test mit {os.path.basename(small)}): {'passt' if ok else 'falsch'}")
+        if ok:
+            return pw
+    return None
 
 
 # ---------------------------------------------------------------- progress parsing
@@ -850,7 +908,10 @@ class Job:
         self.work = os.path.join(self.params["work"], "job-" + self.id)
 
     def public(self):
-        return {k: getattr(self, k) for k in PUBLIC}
+        d = {k: getattr(self, k) for k in PUBLIC}
+        if d["params"].get("password"):
+            d["params"] = dict(d["params"], password="••••")
+        return d
 
     # -- logging / progress
     def log(self, msg=""):
@@ -906,9 +967,10 @@ class Job:
         self.check()
         self.bp = {"total": getattr(self, "src_bytes", None), "data": 0.0, "large": 0, "lpct": 0.0,
                    "base": None, "bar": 0.0}
-        self.log("$ " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
-        LOG.debug("job %s exec: %s", self.id, cmd)
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+        self.log("$ " + mask_cmd(cmd))
+        LOG.debug("job %s exec: %s", self.id, mask_cmd(cmd))
+        self.proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     start_new_session=True)
         buf = b""
         with open(self.logpath, "ab") as lf:
             while True:
@@ -978,7 +1040,23 @@ class Job:
 
     def sevenz(self, archive, dest, need_build=False):
         """Extract; checks free space first (unpacked size, plus build temp if the content is built later)."""
-        rc, out = cmd_out([SEVENZ, "l", archive], 300)
+        state, listing = archive_encryption(archive)
+        pw = ""
+        if state in ("header", "data"):
+            cands = password_candidates(self.params.get("password"))
+            self.log(f"Archiv ist passwortgeschützt ({'Dateinamen verschlüsselt' if state == 'header' else 'Inhalt verschlüsselt'})"
+                     f" · {len(cands)} Passwort-Kandidat(en)")
+            if not cands:
+                raise JobError(f"{os.path.basename(archive)} ist passwortgeschützt. Passwort im Feld „Archiv-Passwort“ "
+                               "eintragen oder unter Einstellungen → Archiv-Passwörter hinterlegen.")
+            pw = find_password(archive, state, listing, cands, self.log)
+            if pw is None:
+                raise JobError(f"Kein passendes Passwort für {os.path.basename(archive)} – "
+                               f"{len(cands)} Kandidat(en) probiert.")
+            self.log("Passwort gefunden.")
+        elif state == "unknown":
+            self.log("Archiv-Info konnte nicht gelesen werden: " + listing.strip().splitlines()[-1][:200] if listing.strip() else "")
+        rc, out = cmd_out_stdin([SEVENZ, "l", f"-p{pw}", archive], 300)
         m = re.search(r"^\S+ \S+\s+(\d+)\s+(\d+)?\s*\d+ files", out, re.M) if rc == 0 else None
         if m:
             unpacked = int(m.group(1))
@@ -989,7 +1067,7 @@ class Job:
             if free is not None and free < need:
                 raise JobError(f"Zu wenig Platz im Arbeitsordner: braucht ~{human(need)}, frei {human(free)}. "
                                "Unter 'Erweitert' einen größeren Arbeitsordner wählen (z. B. auf dem Array).")
-        self.run([SEVENZ, "x", "-y", "-bso0", "-bse1", "-bsp1", f"-o{dest}", archive], parse_7z)
+        self.run([SEVENZ, "x", "-y", "-bso0", "-bse1", "-bsp1", f"-p{pw}", f"-o{dest}", archive], parse_7z)
         self.set_progress(100)
 
     # -- pipeline
@@ -1328,7 +1406,7 @@ SAVE_LOCK = threading.Lock()
 def save_jobs():
     try:
         with LOCK:
-            data = [JOBS[i].public() for i in ORDER[-200:]]
+            data = [JOBS[i].public() for i in ORDER[-200:]]  # passwords are masked here
         with SAVE_LOCK:
             tmp = os.path.join(DATA, "jobs.json.tmp")
             with open(tmp, "w") as f:
@@ -1618,6 +1696,15 @@ def public_check(c):
 _INFO_CACHE = {"t": 0, "v": None}
 
 
+def cmd_out_stdin(cmd, timeout=60):
+    try:
+        r = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                           timeout=timeout)
+        return r.returncode, r.stdout.decode("utf-8", "replace").strip()
+    except Exception as e:
+        return -1, f"{type(e).__name__}: {e}"
+
+
 def cmd_out(cmd, timeout=60):
     try:
         r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
@@ -1746,6 +1833,7 @@ def probe(path):
         vols = archive_volumes(real)
         info["size"] = sum(os.path.getsize(v) for v in vols)
         info["volumes"] = len(vols)
+        info["encrypted"] = archive_encryption(real)[0] in ("header", "data")
     if kind == "exfat":
         try:
             img = ExfatImage(real)
@@ -1907,10 +1995,19 @@ class H(BaseHTTPRequestHandler):
                     "delete_archive": bool(b.get("delete_archive")),
                     "checksum": bool(b.get("checksum", True)),
                     "full_verify": bool(b.get("full_verify")),
+                    "password": (b.get("password") or "")[:500],
                     "origin": "manual",
                 }
                 if params["delete_archive"] and classify(params["source"])[0] != "archive":
                     params["delete_archive"] = False
+                return self.send(200, enqueue(params).public())
+            m = re.match(r"^/api/jobs/([\w-]+)/retry$", u.path)
+            if m and m.group(1) in JOBS:
+                old = JOBS[m.group(1)].params
+                params = {k: v for k, v in old.items() if k not in ("watch_items",)}
+                params.update(delete_archive=False, origin="manual")
+                if params.get("password") == "••••":
+                    params["password"] = ""
                 return self.send(200, enqueue(params).public())
             m = re.match(r"^/api/jobs/([\w-]+)/(continue|cancel|cleanup|delete)$", u.path)
             if m and m.group(1) in JOBS:

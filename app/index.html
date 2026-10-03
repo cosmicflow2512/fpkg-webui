@@ -137,6 +137,9 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <label class="f" for="src">Quelle</label>
     <div class="row"><input id="src" type="text" placeholder="Datei oder Ordner wählen"><button data-pick="src" title="Durchsuchen">…</button></div>
     <div class="hint" id="src-hint">7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)</div>
+    <div id="pw-wrap" style="display:none"><label class="f" for="password">Archiv-Passwort</label>
+      <input id="password" type="password" autocomplete="off" placeholder="leer = Passwörter aus den Einstellungen probieren">
+      <div class="hint">gilt für Quelle und Fix · wird nicht im Log angezeigt</div></div>
 
     <label class="f" for="fix">Fix / Backport <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
     <div class="row"><input id="fix" type="text" placeholder="leer = ohne Fix"><button data-pick="fix" title="Durchsuchen">…</button><button id="fix-clear" title="Fix entfernen">✕</button></div>
@@ -238,6 +241,10 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       <div class="row" style="margin-top:10px"><button id="w-scan">Jetzt prüfen</button><span class="hint" id="w-info" style="align-self:center"></span></div>
       <div class="wl" id="w-list"></div>
 
+      <h3>Archiv-Passwörter</h3>
+      <textarea id="s-archive_passwords" rows="4" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--text);font:13px var(--mono)" placeholder="ein Passwort pro Zeile"></textarea>
+      <div class="hint">werden der Reihe nach probiert, wenn ein Archiv passwortgeschützt ist und beim Auftrag kein Passwort angegeben wurde (auch für den Watch-Ordner)</div>
+
       <h3>Pushover</h3>
       <div class="opts"><label><input type="checkbox" id="s-pushover_enabled"><span>Benachrichtigungen per Pushover</span></label></div>
       <div class="hint" id="s-envhint"></div>
@@ -322,6 +329,8 @@ async function probe(id){
     if (r.app) t += ' · App: '+r.app+(r.content?' ('+human(r.content)+')':'');
     if (r.param) t += ' · '+r.param;
     if (r.note) t += ' · '+r.note;
+    if (r.encrypted) t += ' · 🔒 passwortgeschützt';
+    if (id==='src' || id==='fix') { if (r.encrypted) $('#pw-wrap').style.display=''; }
     if (r.path !== v && id==='src') t += ' · verwendet: '+r.path.split('/').slice(-2).join('/');
     h.className='hint ok'; h.textContent=t;
     if (id==='src'){ srcKind=r.kind; updDel(); }
@@ -379,7 +388,7 @@ $('#start').onclick = async () => {
   $('#start-err').textContent='';
   const b = {source:$('#src').value.trim(), fix:$('#fix').value.trim(), out:$('#out').value.trim(), work:$('#work').value.trim(),
              preset:$('#preset').value, confirm:$('#confirm').checked, cleanup:$('#cleanup').checked,
-             keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked, checksum:$('#checksum').checked, full_verify:$('#full_verify').checked};
+             keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked, checksum:$('#checksum').checked, full_verify:$('#full_verify').checked, password:$('#password').value};
   if (!b.source){ $('#start-err').textContent='Quelle fehlt'; return; }
   if (b.delete_archive && !confirm('Das Quellarchiv wird nach erfolgreichem Entpacken GELÖSCHT. Fortfahren?')) return;
   $('#start').disabled=true;
@@ -490,7 +499,7 @@ function cancelBullets(j){
 }
 $('#b-continue').onclick = () => post(`/api/jobs/${sel}/continue`).then(pollLog);
 $('#b-dl').onclick = () => { location.href = `/api/jobs/${sel}/download`; };
-$('#b-retry').onclick = async () => { const p=curJob.params; try{ const n = await post('/api/jobs', {...p, fix:p.fix||'', delete_archive:false}); select(n.id); }catch(e){ alert(e.message); } };
+$('#b-retry').onclick = async () => { try{ const n = await post(`/api/jobs/${curJob.id}/retry`); select(n.id); }catch(e){ alert(e.message); } };
 $('#b-check').onclick = async () => { const pkg=curJob.result.pkg; showTab('pkgs'); try{ await post('/api/checks',{path:pkg, mode:'full'}); }catch(e){ alert(e.message); } loadPkgs(); };
 $('#m-cancel').onclick = async () => { $('#b-menu').open=false; const j=curJob; if (await ask(`„${title(j)}“ abbrechen?`, cancelBullets(j), 'Ja, Auftrag abbrechen', 'Weiterlaufen lassen')) { await post(`/api/jobs/${j.id}/cancel`); pollLog(); } };
 $('#m-cleanup').onclick = async () => { $('#b-menu').open=false; const j=curJob; if (await ask('Arbeitsordner löschen?', [`Löscht die entpackten Daten dieses Auftrags (<span style="font-family:var(--mono)">job-${esc(j.id)}</span>).`, 'Das fertige Paket und deine Quelldateien bleiben erhalten.'], 'Arbeitsordner löschen')) { await post(`/api/jobs/${j.id}/cleanup`); pollLog(); } };
@@ -571,7 +580,7 @@ $('#g-selftest').onclick = async () => {
 };
 
 // ---------- settings
-const SKEYS = ['overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','watch_stable','watch_interval','watch_preset','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting'];
+const SKEYS = ['archive_passwords','overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','watch_stable','watch_interval','watch_preset','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting'];
 async function loadSettings(){
   try{ const s = await api('/api/settings'); const L=s.locked||[]; SKEYS.forEach(k=>{ const e=$('#s-'+k); if(!e) return; if(e.type==='checkbox') e.checked=!!s[k]; else e.value=s[k]??''; e.disabled=L.includes(k); if(L.includes(k)) e.title='aus dem Unraid-Template (Umgebungsvariable)'; }); $('#s-envhint').textContent = L.length ? 'Gesperrte Felder kommen aus dem Unraid-Template: '+L.map(k=>({pushover_user:'PUSHOVER_USER',pushover_token:'PUSHOVER_TOKEN',webui_url:'WEBUI_URL'})[k]).join(', ') : ''; }catch(e){ $('#s-msg').textContent=e.message; }
   loadWatch();
