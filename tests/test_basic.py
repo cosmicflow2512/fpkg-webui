@@ -156,10 +156,56 @@ def test_exfat():
         check(f"exfat extract identical ({os.path.basename(path)})", sha_tree(out) == ref)
 
 
+def test_nested_archives():
+    """DUPLEX-style: split RAR -> one inner RAR -> app folder. 7-Zip is replaced by a fake that 'extracts' from a map."""
+    base = tempfile.mkdtemp()
+    os.makedirs(os.path.join(base, "logs", "jobs"), exist_ok=True)
+    server.DATA = base
+    contents = {}  # archive basename -> callable(dest)
+
+    def app_into(dest):
+        os.makedirs(os.path.join(dest, "PPSA00000-app0", "sce_sys"))
+        touch(os.path.join(dest, "PPSA00000-app0"), "eboot.bin")
+
+    def inner_into(name, nxt):
+        def f(dest):
+            os.makedirs(dest, exist_ok=True)
+            touch(dest, name, "release.nfo")
+            contents[name] = nxt
+        return f
+
+    def run(levels):
+        j = server.Job({"work": base, "source": "x"})
+        os.makedirs(os.path.join(j.work, "src"))
+        j.set_plan(["Quelle entpacken", "Quelle prüfen", "FPKG bauen"])
+        j.sevenz = lambda arc, dest, need_build=False: contents[os.path.basename(arc)](dest)
+        nxt = app_into
+        for i in range(levels, 0, -1):
+            nxt = inner_into(f"inner{i}.rar", nxt)
+        nxt(os.path.join(j.work, "src"))
+        return j, j.unwrap_nested(os.path.join(j.work, "src"))
+
+    j, (kind, path) = run(1)
+    check("nested: inner archive unpacked to app folder", kind == "folder" and path.endswith("PPSA00000-app0"))
+    check("nested: inner archive deleted", not os.path.exists(os.path.join(j.work, "src", "inner1.rar")))
+    check("nested: plan step after 'Quelle entpacken'",
+          [x["label"] for x in j.plan][:2] == ["Quelle entpacken", "Inneres Archiv entpacken"])
+    j, (kind, path) = run(server.MAX_NEST)
+    check("nested: MAX_NEST levels ok", kind == "folder")
+    try:
+        run(server.MAX_NEST + 1)
+        check("nested: too deep raises", False)
+    except server.JobError:
+        check("nested: too deep raises", True)
+    j, (kind, path) = run(0)
+    check("nested: plain archive unchanged", kind == "folder" and "Inneres Archiv entpacken" not in [x["label"] for x in j.plan])
+
+
 if __name__ == "__main__":
     test_volumes()
     test_progress()
     test_checksums()
+    test_nested_archives()
     test_exfat()
     print(f"\n{len(FAILS)} Fehler" if FAILS else "\nalle Tests ok")
     sys.exit(1 if FAILS else 0)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2 – 2026-10-08
+- Verschachtelte Archive (z. B. DUPLEX: mehrteiliges RAR, darin ein einzelnes RAR) werden automatisch bis zu 3 Ebenen tief entpackt, statt mit „Archiv enthält nur ein weiteres Archiv“ abzubrechen. Das innere Archiv liegt im Arbeitsordner und wird direkt nach dem Entpacken gelöscht. Neuer Schritt „Inneres Archiv entpacken“
+- Formular: Ausgabe- und Arbeitsordner, die im Browser nur als alter Standardwert gespeichert waren, folgen jetzt einem geänderten `DEFAULT_OUT`/`DEFAULT_WORK`. Selbst gewählte Pfade bleiben erhalten
+
 ## 1.2.1 – 2026-10-03
 - Passwortgeschützte Archive (7z, RAR/RAR5, ZIP, auch mehrteilig): Erkennung schon bei der Quellauswahl, Feld „Archiv-Passwort“ im Auftrag, Passwortliste unter Einstellungen → Archiv-Passwörter (eine Zeile pro Passwort, wird der Reihe nach probiert)
 - Ohne passendes Passwort bricht der Auftrag sofort mit klarer Meldung ab statt mit „Break signaled“ (Exit 255)
