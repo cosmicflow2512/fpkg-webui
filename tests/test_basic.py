@@ -48,6 +48,17 @@ def test_volumes():
     check("exfat kind", server.classify(os.path.join(d, "img.exfat"))[0] == "exfat")
 
 
+def test_old_rar_naming():
+    d = tempfile.mkdtemp()
+    touch(d, "d.rar", "d.r00", "d.r99", "d.s00", "d.s83", "d.sfv", "d.nfo", "z.zip", "z.z01")
+    vols = [os.path.basename(v) for v in server.archive_volumes(os.path.join(d, "d.rar"))]
+    check("old rar: .rar + .r00-.r99 + .s00-.s83", vols == ["d.r00", "d.r99", "d.rar", "d.s00", "d.s83"])
+    check("old rar: .s83 -> .rar", os.path.basename(server.classify(os.path.join(d, "d.s83"))[1]) == "d.rar")
+    check("old rar: .sfv not a volume", "d.sfv" not in vols)
+    check("zip: .z01 still zip", [os.path.basename(v) for v in server.archive_volumes(os.path.join(d, "z.zip"))]
+          == ["z.z01", "z.zip"])
+
+
 def test_progress():
     j = server.Job.__new__(server.Job)
     j.prog = {"pct": None, "phase": "", "detail": "", "eta": ""}
@@ -203,6 +214,7 @@ def test_nested_archives():
 
 if __name__ == "__main__":
     test_volumes()
+    test_old_rar_naming()
     test_progress()
     test_checksums()
     test_nested_archives()

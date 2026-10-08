@@ -148,7 +148,7 @@ def fmt_eta(sec):
 def lower_ext(p):
     n = p.lower()
     if (re.search(r"\.(7z|zip|rar|tar)\.\d{3}$", n) or re.search(r"\.part\d+\.rar$", n)
-            or re.search(r"\.(r|z)\d{2,3}$", n)):
+            or re.search(r"\.(r\d{2,3}|[s-y]\d{2}|z\d{2,3})$", n)):
         return ".001"
     for e in ARCHIVES + IMAGES + (".pkg",):
         if n.endswith(e):
@@ -224,15 +224,16 @@ def archive_volumes(path):
     m = re.match(r"^(.*)\.(7z|zip|rar|tar)\.\d{3}$", low)
     if m:
         pats.append(re.escape(m.group(1)) + r"\." + m.group(2) + r"\.\d{3}")
-    m = re.match(r"^(.*)\.(r|z)\d{2,3}$", low)
+    # old RAR naming continues .r00-.r99, .s00-.s99, .t00 … (big sets like DUPLEX inner archives)
+    m = re.match(r"^(.*)\.(r(?=\d{2,3}$)|[s-y](?=\d{2}$)|z(?=\d{2,3}$))\d+$", low)
     if m:
-        low = m.group(1) + (".rar" if m.group(2) == "r" else ".zip")
+        low = m.group(1) + (".zip" if m.group(2) == "z" else ".rar")
     m = re.match(r"^(.*)\.part\d+\.rar$", low)
     if m:
         pats.append(re.escape(m.group(1)) + r"\.part\d+\.rar")
     elif low.endswith(".rar"):
         b = re.escape(low[:-4])
-        pats += [b + r"\.rar", b + r"\.r\d{2,3}"]
+        pats += [b + r"\.rar", b + r"\.r\d{2,3}", b + r"\.[s-y]\d{2}"]
     elif low.endswith(".zip"):
         b = re.escape(low[:-4])
         pats += [b + r"\.zip", b + r"\.z\d{2}"]
