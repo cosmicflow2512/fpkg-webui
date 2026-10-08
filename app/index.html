@@ -308,8 +308,14 @@ let CFG = {}, sel = null, logOff = -1, logFor = null, srcKind = null;
 
 // ---------- form persistence (per browser)
 const FIELDS = ['src','fix','out','work','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'];
-function saveForm(){ try{ const o={}; FIELDS.forEach(k=>{const e=$('#'+k); o[k]=e.type==='checkbox'?e.checked:e.value}); localStorage.setItem('fpkg-form', JSON.stringify(o)); }catch(e){} }
-function loadForm(){ try{ const o=JSON.parse(localStorage.getItem('fpkg-form')||'{}'); FIELDS.forEach(k=>{ if(k in o && k!=='delete_archive'){const e=$('#'+k); if(e.type==='checkbox') e.checked=o[k]; else e.value=o[k];} }); }catch(e){} }
+// _def_out/_def_work remember the server defaults at save time: a saved value that was just the old default
+// follows a changed DEFAULT_OUT/DEFAULT_WORK instead of sticking (forms saved before 1.2.2: /output, /work).
+const DEF_KEYS = {out:'_def_out', work:'_def_work'}, OLD_DEF = {out:'/output', work:'/work'};
+function saveForm(){ try{ const o={}; FIELDS.forEach(k=>{const e=$('#'+k); o[k]=e.type==='checkbox'?e.checked:e.value}); o._def_out=CFG.out; o._def_work=CFG.work; localStorage.setItem('fpkg-form', JSON.stringify(o)); }catch(e){} }
+function loadForm(){ try{ const o=JSON.parse(localStorage.getItem('fpkg-form')||'{}');
+  FIELDS.forEach(k=>{ if(!(k in o) || k==='delete_archive') return;
+    if(k in DEF_KEYS && o[k]===(o[DEF_KEYS[k]] ?? OLD_DEF[k])) return;  // was the default -> keep current server default
+    const e=$('#'+k); if(e.type==='checkbox') e.checked=o[k]; else e.value=o[k]; }); }catch(e){} }
 
 // ---------- probes
 let probeT = {};

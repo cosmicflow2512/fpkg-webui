@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.2.2"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -44,6 +44,7 @@ STARTED = time.time()
 
 ARCHIVES = (".7z", ".zip", ".rar", ".tar", ".tgz", ".gz", ".xz", ".bz2", ".001")
 IMAGES = (".exfat", ".ffpfsc", ".ffpkg")
+MAX_NEST = 3  # inner archive levels unpacked automatically
 JUNK = {".DS_Store", "Thumbs.db", "desktop.ini", "__MACOSX", ".fseventsd", ".Spotlight-V100", ".Trashes"}
 COPY_CHUNK = 16 * 1024 * 1024
 
@@ -1070,6 +1071,41 @@ class Job:
         self.run([SEVENZ, "x", "-y", "-bso0", "-bse1", "-bsp1", f"-p{pw}", f"-o{dest}", archive], parse_7z)
         self.set_progress(100)
 
+    def unwrap_nested(self, dst):
+        """Classify extracted content. Some releases (e.g. DUPLEX) put the real archive inside the split RAR:
+        extract such inner archives up to MAX_NEST levels. They live in the work dir and are deleted right after
+        extraction, so the space is free again for the build."""
+        kind, inner = classify(dst)
+        self.log(f"Im Archiv erkannt: {kind} -> {inner}")
+        level = 1
+        while kind == "archive":
+            if level > MAX_NEST:
+                raise JobError(f"Mehr als {MAX_NEST} ineinander verpackte Archive – Quelle prüfen")
+            level += 1
+            work = os.path.realpath(self.work) + os.sep
+            vols = archive_volumes(inner)
+            if not all(os.path.realpath(v).startswith(work) for v in vols):
+                raise JobError(f"Inneres Archiv liegt außerhalb des Arbeitsordners: {inner}")
+            labels = [x["label"] for x in self.plan]
+            if "Inneres Archiv entpacken" not in labels:
+                at = labels.index("Quelle entpacken") + 1 if "Quelle entpacken" in labels else len(labels)
+                self.set_plan(labels[:at] + ["Inneres Archiv entpacken"] + labels[at:])
+            self.set_step("Inneres Archiv entpacken")
+            self.log(f"Archiv enthält ein weiteres Archiv (Ebene {level}): " + ", ".join(os.path.basename(v) for v in vols)
+                     + f" ({human(sum(os.path.getsize(v) for v in vols))})")
+            nxt = os.path.join(self.work, f"src{level}")
+            self.sevenz(inner, nxt, need_build=True)
+            for v in vols:
+                try:
+                    os.remove(v)
+                except OSError as e:
+                    self.warn(f"Konnte inneres Archiv {v} nicht löschen: {e}")
+            self.log("Inneres Archiv gelöscht (lag im Arbeitsordner).")
+            strip_junk(nxt)
+            kind, inner = classify(nxt)
+            self.log(f"Im inneren Archiv erkannt: {kind} -> {inner}")
+        return kind, inner
+
     # -- pipeline
     def prepare(self):
         p = self.params
@@ -1117,10 +1153,7 @@ class Job:
             dst = os.path.join(self.work, "src")
             self.sevenz(src, dst, need_build=True)
             strip_junk(dst)
-            inner_kind, inner = classify(dst)
-            self.log(f"Im Archiv erkannt: {inner_kind} -> {inner}")
-            if inner_kind == "archive":
-                raise JobError("Archiv enthält nur ein weiteres Archiv – bitte das innere Archiv direkt wählen")
+            inner_kind, inner = self.unwrap_nested(dst)
             if p.get("delete_archive"):
                 self.keep_work = True
                 for v in vols:
