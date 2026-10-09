@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.2.2"
+APP_VERSION = "1.2.3"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -629,20 +629,38 @@ def title_id_for(path, kind, real):
         return None
 
 
-def find_fix(fixdir, tid):
-    if not (fixdir and tid and os.path.isdir(fixdir)):
-        return None
-    hits = []
+def list_fixes(fixdir, tid=None):
+    """Fix candidates in fixdir (folders and first volumes of archives), matching title ID first, then newest."""
+    if not (fixdir and os.path.isdir(fixdir)):
+        return []
+    out = []
     for e in os.scandir(fixdir):
-        if e.name.startswith(".") or tid.lower() not in e.name.lower():
+        if e.name.startswith(".") or e.name in JUNK:
             continue
-        if e.is_dir() or lower_ext(e.name) in ARCHIVES:
-            if e.is_file() and lower_ext(e.name) in ARCHIVES:
-                fv = first_volume(archive_volumes(e.path))
-                if os.path.realpath(fv) != os.path.realpath(e.path):
+        try:
+            if e.is_dir():
+                size = None
+            elif e.is_file() and lower_ext(e.name) in ARCHIVES:
+                vols = archive_volumes(e.path)
+                if os.path.realpath(first_volume(vols)) != os.path.realpath(e.path):
                     continue
-            hits.append((e.stat().st_mtime, e.path))
-    return max(hits)[1] if hits else None
+                size = sum(os.path.getsize(v) for v in vols)
+            else:
+                continue
+            mtime = e.stat().st_mtime
+        except OSError:
+            continue
+        m = RX_TITLE.search(e.name)
+        out.append({"path": e.path, "name": e.name, "size": size, "mtime": mtime,
+                    "title_id": m.group(0).upper() if m else None,
+                    "match": bool(tid and tid.lower() in e.name.lower())})
+    out.sort(key=lambda f: (not f["match"], -f["mtime"]))
+    return out
+
+
+def find_fix(fixdir, tid):
+    hits = [f for f in list_fixes(fixdir, tid) if f["match"]]
+    return hits[0]["path"] if hits else None
 
 
 def watch_scan():
@@ -1860,15 +1878,18 @@ def bundle():
 
 
 # ---------------------------------------------------------------- http api
-def probe(path):
+def probe(path, fixes=False):
     rp = safe_path(path)
     kind, real = classify(rp)
     info = {"kind": kind, "path": real, "size": dir_size(real)}
+    texts = [os.path.basename(path.rstrip("/")), real]  # where a title ID may show up
     if kind == "archive":
         vols = archive_volumes(real)
         info["size"] = sum(os.path.getsize(v) for v in vols)
         info["volumes"] = len(vols)
-        info["encrypted"] = archive_encryption(real)[0] in ("header", "data")
+        state, listing = archive_encryption(real)
+        info["encrypted"] = state in ("header", "data")
+        texts.append(listing)
     if kind == "exfat":
         try:
             img = ExfatImage(real)
@@ -1883,10 +1904,23 @@ def probe(path):
         rc, out = cmd_out([CLI, "inspect", real], 120)
         m = re.search(r"param\.json: (.+)", out)
         info["param"] = m.group(1).strip() if m else None
+        texts.append(out)
     if kind == "pkg":
         rc, out = cmd_out([CLI, "pkg-info", real], 120)
         bits = [re.search(rx, out) for rx in (r"Title:\s*(.+)", r"contentVersion:\s*(\S+)", r"Content ID:\s*(\S+)")]
         info["param"] = " · ".join(b.group(1).strip() for b in bits if b)
+        texts.append(out)
+    m = next((m for m in (RX_TITLE.search(t or "") for t in texts) if m), None)
+    info["title_id"] = m.group(0).upper() if m else None
+    if fixes:
+        fixdir = SETTINGS.get("watch_fix_dir")
+        try:
+            fixdir = safe_path(fixdir, must_exist=False) if fixdir else None
+        except JobError:
+            fixdir = None
+        info["fix_dir"] = fixdir
+        info["fix_dir_exists"] = bool(fixdir and os.path.isdir(fixdir))
+        info["fixes"] = list_fixes(fixdir, info["title_id"])[:20] if fixdir else []
     return info
 
 
@@ -1959,7 +1993,7 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/ls":
                 return self.send(200, list_dir(q.get("path", "")))
             if u.path == "/api/probe":
-                return self.send(200, probe(q.get("path", "")))
+                return self.send(200, probe(q.get("path", ""), fixes=q.get("fixes") == "1"))
             if u.path == "/api/free":
                 return self.send(200, disk(safe_path(q.get("path", ""), must_exist=False)))
             if u.path == "/api/jobs":

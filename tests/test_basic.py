@@ -212,12 +212,42 @@ def test_nested_archives():
     check("nested: plain archive unchanged", kind == "folder" and "Inneres Archiv entpacken" not in [x["label"] for x in j.plan])
 
 
+def test_fix_suggestions():
+    root = tempfile.mkdtemp()
+    fixdir = os.path.join(root, "fixes")
+    os.makedirs(os.path.join(fixdir, "PPSA28416 DLC Unlocker"))
+    touch(fixdir, "[DLPSGAME.COM]-FW_403_PPSA34547_CONTROL_backport_files.zip", "other.part1.rar", "other.part2.rar",
+          "readme.txt", "PPSA99999 fix.7z")
+    os.utime(os.path.join(fixdir, "PPSA99999 fix.7z"), (1, 1))
+    fx = server.list_fixes(fixdir, "PPSA34547")
+    names = [f["name"] for f in fx]
+    check("fixes: matching title ID first", names[0].startswith("[DLPSGAME.COM]-FW_403_PPSA34547") and fx[0]["match"])
+    check("fixes: only first volume listed", "other.part1.rar" in names and "other.part2.rar" not in names)
+    check("fixes: non-archives skipped", "readme.txt" not in names)
+    check("fixes: folders listed", "PPSA28416 DLC Unlocker" in names)
+    check("fixes: find_fix uses match", server.find_fix(fixdir, "ppsa28416").endswith("PPSA28416 DLC Unlocker"))
+    check("fixes: no match -> None", server.find_fix(fixdir, "PPSA00001") is None)
+    # probe: title ID taken from the archive listing when the name has none (DUPLEX naming)
+    src = os.path.join(root, "src")
+    os.makedirs(src)
+    touch(src, "STAR.WARS.Galactic.Racer.PS5-DUPLEX.part001.rar")
+    old = server.archive_encryption, server.roots
+    server.archive_encryption = lambda a: ("none", "Path = PPSA28416-app0/eboot.bin\n")
+    server.roots = lambda: [root]
+    server.SETTINGS["watch_fix_dir"] = fixdir
+    r = server.probe(os.path.join(src, "STAR.WARS.Galactic.Racer.PS5-DUPLEX.part001.rar"), fixes=True)
+    check("probe: title ID from listing", r["title_id"] == "PPSA28416")
+    check("probe: matching fix suggested", r["fixes"][0]["name"] == "PPSA28416 DLC Unlocker" and r["fix_dir_exists"])
+    server.archive_encryption, server.roots = old
+
+
 if __name__ == "__main__":
     test_volumes()
     test_old_rar_naming()
     test_progress()
     test_checksums()
     test_nested_archives()
+    test_fix_suggestions()
     test_exfat()
     print(f"\n{len(FAILS)} Fehler" if FAILS else "\nalle Tests ok")
     sys.exit(1 if FAILS else 0)

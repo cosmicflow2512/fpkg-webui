@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.3 – 2026-10-09
+- Formular schlägt Fixes und Backports aus dem Fix-Ordner (Einstellungen → Fix-Ordner, Standard `/shares/NZB/fpkg-fixes`) vor, sobald eine Quelle gewählt ist: passende Title-ID zuerst, ein Klick übernimmt den Fix. Die Title-ID kommt aus dem Namen, der Archivliste (auch bei DUPLEX-Namen ohne ID), `inspect` oder `pkg-info`
+- Ohne passende Title-ID werden die neuesten Einträge des Fix-Ordners gezeigt
+
 ## 1.2.2 – 2026-10-08
 - Verschachtelte Archive (z. B. DUPLEX: mehrteiliges RAR, darin ein einzelnes RAR) werden automatisch bis zu 3 Ebenen tief entpackt, statt mit „Archiv enthält nur ein weiteres Archiv“ abzubrechen. Das innere Archiv liegt im Arbeitsordner und wird direkt nach dem Entpacken gelöscht. Neuer Schritt „Inneres Archiv entpacken“
 - RAR mit alter Benennung über 100 Teile (`.rar`, `.r00`–`.r99`, `.s00` …) wird vollständig erkannt: Größe, Prüfsumme, „Quellarchiv löschen“ und das Löschen innerer Archive erfassen jetzt auch die `.sNN`-Teile
