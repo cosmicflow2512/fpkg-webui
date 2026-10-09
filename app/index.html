@@ -54,6 +54,11 @@ details{margin-top:12px} summary{cursor:pointer;font-size:13px;color:var(--muted
 .job .s{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .job .mini{height:3px;background:var(--track);border-radius:2px;margin-top:4px;overflow:hidden}
 .job .mini i{display:block;height:100%;background:var(--run)}
+.sug{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;font-size:12px;color:var(--muted);align-items:center}
+.sug:empty{display:none}
+.sug button{font-size:12px;padding:4px 10px;text-align:left;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sug button.match{border-color:var(--ok);color:var(--ok)}
+.sug button.all{background:none;border:none;padding:4px 0;color:var(--muted);text-decoration:underline;cursor:pointer}
 .chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;text-transform:uppercase;letter-spacing:.4px;border:1px solid currentColor}
 .c-queued{color:var(--muted)} .c-running{color:var(--run)} .c-waiting{color:var(--warn)}
 .c-done{color:var(--ok)} .c-failed{color:var(--err)} .c-cancelled{color:var(--muted)} .c-ready{color:var(--run)}
@@ -144,6 +149,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <label class="f" for="fix">Fix / Backport <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
     <div class="row"><input id="fix" type="text" placeholder="leer = ohne Fix"><button data-pick="fix" title="Durchsuchen">…</button><button id="fix-clear" title="Fix entfernen">✕</button></div>
     <div class="hint" id="fix-hint">Archiv oder Ordner; Dateien ersetzen gleichnamige im App-Ordner</div>
+    <div id="fix-sug" class="sug"></div>
 
     <label class="f" for="out">Ausgabeordner</label>
     <div class="row"><input id="out" type="text"><button data-pick="out" data-dir="1" title="Durchsuchen">…</button></div>
@@ -225,7 +231,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       <div class="opts"><label><input type="checkbox" id="s-watch_enabled"><span>Watch-Ordner aktiv<small>Archive, Images, .pkg und Ordner, die dort fertig ankommen, werden automatisch eingereiht</small></span></label></div>
       <label class="f">Eingang</label>
       <div class="row"><input id="s-watch_dir" type="text"><button data-pick="s-watch_dir" data-dir="1">…</button></div>
-      <label class="f">Fix-Ordner <span style="font-weight:400;color:var(--muted)">(Fix wird über die Title-ID im Namen zugeordnet, z. B. „PPSA11386 PSSR Fix.zip“)</span></label>
+      <label class="f">Fix-Ordner <span style="font-weight:400;color:var(--muted)">(Fixes und Backports; Zuordnung über die Title-ID im Namen, z. B. „PPSA11386 PSSR Fix.zip“ – gilt für Watch-Ordner und die Vorschläge im Formular)</span></label>
       <div class="row"><input id="s-watch_fix_dir" type="text"><button data-pick="s-watch_fix_dir" data-dir="1">…</button></div>
       <div class="grid">
         <div><label class="f">Stillstand vor Start (s)</label><input id="s-watch_stable" type="text"></div>
@@ -323,12 +329,12 @@ function probeLater(id){ clearTimeout(probeT[id]); probeT[id] = setTimeout(()=>p
 function updDel(){ const on = srcKind==='archive'; $('#lbl-del').classList.toggle('off', !on); $('#delete_archive').disabled = !on; if(!on) $('#delete_archive').checked=false; }
 async function probe(id){
   const v = $('#'+id).value.trim(), h = $('#'+id+'-hint');
-  if (id==='src') { srcKind=null; updDel(); }
+  if (id==='src') { srcKind=null; updDel(); $('#fix-sug').innerHTML=''; }
   if (id==='fix' && !v){ h.className='hint'; h.textContent='ohne Fix'; return; }
   if (!v){ h.className='hint'; h.textContent=''; return; }
   h.className='hint'; h.textContent='prüfe …';
   try{
-    const r = await api('/api/probe?path='+encodeURIComponent(v));
+    const r = await api('/api/probe?path='+encodeURIComponent(v)+(id==='src'?'&fixes=1':''));
     let t = (KIND[r.kind]||r.kind);
     if (r.volumes>1) t += ` (${r.volumes} Teile)`;
     if (r.size!=null) t += ' · '+human(r.size);
@@ -339,11 +345,28 @@ async function probe(id){
     if (id==='src' || id==='fix') { if (r.encrypted) $('#pw-wrap').style.display=''; }
     if (r.path !== v && id==='src') t += ' · verwendet: '+r.path.split('/').slice(-2).join('/');
     h.className='hint ok'; h.textContent=t;
-    if (id==='src'){ srcKind=r.kind; updDel(); }
+    if (id==='src'){ srcKind=r.kind; updDel(); fixSuggest(r); }
   }catch(e){
     if (id==='fix'){ h.className='hint'; h.textContent='Fix-Ordner (Inhalt wird beim Lauf geprüft)'; return; }
     h.className='hint err'; h.textContent=e.message;
   }
+}
+// Fixes/backports from the fix folder (Settings → Fix-Ordner): matching title ID first, else all of them
+function fixSuggest(r){
+  const box = $('#fix-sug'); box.innerHTML='';
+  if (!r.fix_dir){ box.textContent='Fix-Ordner unter Einstellungen festlegen, dann werden passende Fixes hier vorgeschlagen.'; return; }
+  if (!r.fix_dir_exists){ box.textContent=`Fix-Ordner ${r.fix_dir} gibt es noch nicht – dort Fixes/Backports ablegen (Title-ID im Namen).`; return; }
+  const fx = r.fixes||[], hit = fx.filter(f=>f.match);
+  if (!fx.length) return;
+  const lab = document.createElement('span');
+  lab.textContent = hit.length ? `Passend zu ${r.title_id}:` : (r.title_id ? `Kein Fix für ${r.title_id} – im Fix-Ordner:` : 'Title-ID unbekannt – im Fix-Ordner:');
+  box.appendChild(lab);
+  const add = f => { const b=document.createElement('button'); b.type='button'; if(f.match) b.className='match';
+    b.textContent = f.name + (f.size!=null?' · '+human(f.size):''); b.title=f.path;
+    b.onclick = () => { $('#fix').value=f.path; saveForm(); probe('fix'); }; box.appendChild(b); };
+  (hit.length ? hit : fx.slice(0,8)).forEach(add);
+  if (hit.length && fx.length>hit.length){ const m=document.createElement('button'); m.type='button'; m.className='all';
+    m.textContent=`${fx.length-hit.length} weitere zeigen`; m.onclick=()=>{ m.remove(); fx.filter(f=>!f.match).forEach(add); }; box.appendChild(m); }
 }
 async function freeHint(id){
   const v=$('#'+id).value.trim(), h=$('#'+id+'-hint'); if(!v) return;
