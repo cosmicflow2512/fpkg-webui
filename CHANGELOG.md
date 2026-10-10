@@ -1,6 +1,7 @@
 # Changelog
 
 ## 1.2.5 – 2026-10-10
+- Image-Build repariert: 1.2.4 hatte die neue fpkg-cli-Version ohne neue SHA-256-Prüfsumme, der Build auf `main` schlug fehl (`:latest` blieb auf 1.2.3)
 - Einfache Split-Dateien werden als zusammengehörig erkannt: `game.exfat.001`, `.002` … und `name.001`, `.002` … (7-Zip-Format „Split“). Bisher zählte nur das erste Teil – Größe, Prüfsumme, „Quellarchiv löschen“ und die Watch-Gruppierung haben die übrigen Teile übersehen, ein gewähltes `.002` ergab „Unbekannter Dateityp“
 
 ## 1.2.4 – 2026-10-10
