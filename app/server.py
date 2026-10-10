@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.2.4"
+APP_VERSION = "1.2.5"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -147,7 +147,7 @@ def fmt_eta(sec):
 
 def lower_ext(p):
     n = p.lower()
-    if (re.search(r"\.(7z|zip|rar|tar)\.\d{3}$", n) or re.search(r"\.part\d+\.rar$", n)
+    if (re.search(r"\.\d{3}$", n) or re.search(r"\.part\d+\.rar$", n)
             or re.search(r"\.(r\d{2,3}|[s-y]\d{2}|z\d{2,3})$", n)):
         return ".001"
     for e in ARCHIVES + IMAGES + (".pkg",):
@@ -221,9 +221,10 @@ def archive_volumes(path):
     d, name = os.path.split(path)
     low = name.lower()
     pats = []
-    m = re.match(r"^(.*)\.(7z|zip|rar|tar)\.\d{3}$", low)
+    # split files: name.7z.001 …, but also plain splits like game.exfat.001 / name.001 (7-Zip "Split" format)
+    m = re.match(r"^(.*)\.\d{3}$", low)
     if m:
-        pats.append(re.escape(m.group(1)) + r"\." + m.group(2) + r"\.\d{3}")
+        pats.append(re.escape(m.group(1)) + r"\.\d{3}")
     # old RAR naming continues .r00-.r99, .s00-.s99, .t00 … (big sets like DUPLEX inner archives)
     m = re.match(r"^(.*)\.(r(?=\d{2,3}$)|[s-y](?=\d{2}$)|z(?=\d{2,3}$))\d+$", low)
     if m:
