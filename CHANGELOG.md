@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.4 – 2026-10-10
+- fpkg-cli 2.2.5 → 2.2.6 (Release vom 09.10.): eingebaute Engine auf Drakmors fpkg-gui 0.6.11 – behebt NAPS-Fehler und den DLC-Build, Dateien mit 32 Null-Bytes werden nicht mehr fälschlich als Passcode verworfen, `sce_sys/about/right.sprx` wird automatisch erzeugt
+- Achtung, geändertes Verhalten von fpkg-cli: `sce_sys/playgo*` der Quelle bleibt jetzt standardmäßig erhalten (vorher verworfen und neu erzeugt); Dateien bleiben in ihren Original-Chunks
+
 ## 1.2.3 – 2026-10-09
 - Formular schlägt Fixes und Backports aus dem Fix-Ordner (Einstellungen → Fix-Ordner, Standard `/shares/NZB/fpkg-fixes`) vor, sobald eine Quelle gewählt ist: passende Title-ID zuerst, ein Klick übernimmt den Fix. Die Title-ID kommt aus dem Namen, der Archivliste (auch bei DUPLEX-Namen ohne ID), `inspect` oder `pkg-info`
 - Ohne passende Title-ID werden die neuesten Einträge des Fix-Ordners gezeigt

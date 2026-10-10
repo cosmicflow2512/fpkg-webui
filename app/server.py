@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.2.3"
+APP_VERSION = "1.2.4"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")

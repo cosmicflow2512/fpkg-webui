@@ -1,6 +1,6 @@
 FROM debian:bookworm-slim
 
-ARG FPKG_VERSION=2.2.5
+ARG FPKG_VERSION=2.2.6
 ARG FPKG_SHA256=afd7904d4cd3a9dfb09434dc569a7160330a5d7d6b1deabb9423c3d205a03b65
 ARG SEVENZIP_URL=https://github.com/ip7z/7zip/releases/download/25.01/7z2501-linux-x64.tar.xz
 ARG SEVENZIP_SHA256=4ca3b7c6f2f67866b92622818b58233dc70367be2f36b498eb0bdeaaa44b53f4
