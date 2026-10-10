@@ -8,6 +8,8 @@ Quelle auswählen, optional einen Fix/Backport drüberlegen, „FPKG erstellen�
 
 ![Auftrag läuft](docs/running.png)
 
+Ausführliches Handbuch mit allen Funktionen, Abläufen, Fehlerbildern und dem Aufbau der Anwendung: **[docs/ANLEITUNG.md](docs/ANLEITUNG.md)**
+
 ## Funktionen
 
 - **Quellen:** `.7z`, `.zip`, `.rar` (auch mehrteilig: `.7z.001`, `.part1.rar`, `.r00`, `.z01`),

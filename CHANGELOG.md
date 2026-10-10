@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.5 – 2026-10-10
+- Neues Handbuch `docs/ANLEITUNG.md`: alle Bedienelemente mit Ablauf dahinter, Archive/Teile, Kompression, Watch-Ordner, Fehlerbilder, Architektur, API-Referenz, Update-Ablauf
+- Image-Build repariert: 1.2.4 hatte die neue fpkg-cli-Version ohne neue SHA-256-Prüfsumme, der Build auf `main` schlug fehl (`:latest` blieb auf 1.2.3)
+- Einfache Split-Dateien werden als zusammengehörig erkannt: `game.exfat.001`, `.002` … und `name.001`, `.002` … (7-Zip-Format „Split“). Bisher zählte nur das erste Teil – Größe, Prüfsumme, „Quellarchiv löschen“ und die Watch-Gruppierung haben die übrigen Teile übersehen, ein gewähltes `.002` ergab „Unbekannter Dateityp“
+
 ## 1.2.4 – 2026-10-10
 - fpkg-cli 2.2.5 → 2.2.6 (Release vom 09.10.): eingebaute Engine auf Drakmors fpkg-gui 0.6.11 – behebt NAPS-Fehler und den DLC-Build, Dateien mit 32 Null-Bytes werden nicht mehr fälschlich als Passcode verworfen, `sce_sys/about/right.sprx` wird automatisch erzeugt
 - Achtung, geändertes Verhalten von fpkg-cli: `sce_sys/playgo*` der Quelle bleibt jetzt standardmäßig erhalten (vorher verworfen und neu erzeugt); Dateien bleiben in ihren Original-Chunks

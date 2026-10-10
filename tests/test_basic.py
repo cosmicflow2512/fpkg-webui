@@ -59,6 +59,17 @@ def test_old_rar_naming():
           == ["z.z01", "z.zip"])
 
 
+def test_generic_split():
+    d = tempfile.mkdtemp()
+    touch(d, "x.exfat.001", "x.exfat.002", "x.exfat.010", "f.001", "f.002", "x.exfat.md5")
+    b = os.path.basename
+    check("split: .exfat.002 -> .exfat.001", b(server.classify(os.path.join(d, "x.exfat.002"))[1]) == "x.exfat.001")
+    check("split: all .exfat parts", [b(v) for v in server.archive_volumes(os.path.join(d, "x.exfat.001"))]
+          == ["x.exfat.001", "x.exfat.002", "x.exfat.010"])
+    check("split: plain .002 -> .001", b(server.classify(os.path.join(d, "f.002"))[1]) == "f.001")
+    check("split: plain parts", [b(v) for v in server.archive_volumes(os.path.join(d, "f.001"))] == ["f.001", "f.002"])
+
+
 def test_progress():
     j = server.Job.__new__(server.Job)
     j.prog = {"pct": None, "phase": "", "detail": "", "eta": ""}
@@ -244,6 +255,7 @@ def test_fix_suggestions():
 if __name__ == "__main__":
     test_volumes()
     test_old_rar_naming()
+    test_generic_split()
     test_progress()
     test_checksums()
     test_nested_archives()
