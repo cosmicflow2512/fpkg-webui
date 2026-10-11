@@ -3,7 +3,8 @@
 Weboberfläche für Unraid zum Erstellen von PS5-FPKGs (Debug-Pakete) mit dem
 [PSVIETHOA FPKG Builder](https://github.com/thanhsondev/PSVIETHOA-FPKG-Builder) (`fpkg-cli`).
 
-Quelle auswählen, optional einen Fix/Backport drüberlegen, „FPKG erstellen“ – den Rest
+Quelle auswählen, optional einen Fix/Backport drüberlegen oder eine separate Backport-PKG gegen
+eine Base-PKG bauen – den Rest
 (Entpacken, Kopieren, Prüfen, Bauen, Kontrolle) erledigt der Container.
 
 ![Auftrag läuft](docs/running.png)
@@ -18,6 +19,10 @@ Ausführliches Handbuch mit allen Funktionen, Abläufen, Fehlerbildern und dem A
 - **Fix/Backport:** Archiv oder Ordner wird 1:1 über den App-Ordner gelegt. Vorher zeigt die
   Oberfläche, welche Dateien ersetzt werden und welche neu sind. Nach dem Bau wird geprüft, ob
   alle Fix-Dateien im Paket gelandet sind.
+- **Separate Backport-PKG:** Auftragsart *Separate Backport-PKG erstellen* nimmt Backport-Dateien
+  als Quelle und eine Base / Referenz-PKG als eigenes Feld. Base darf auch ein Archiv oder Ordner
+  sein, solange darin eine `.pkg` liegt. Gebaut wird mit `fpkg-cli build --sdk-reference`; der
+  Container bringt dafür Wine mit.
 - **exFAT + Fix ohne Mount:** eigener exFAT-Leser (reines Python, auch MBR/GPT-Images),
   der Container braucht keine Privilegien.
 - **Fortschritt:** Schritt-Leiste und Balken mit Restzeit für Entpacken, Kopieren und Bauen.
@@ -92,8 +97,10 @@ lässt sich ein Eintrag erneut verarbeiten.
 ## Was man wissen muss
 
 - Ergebnis ist ein **Debug-FPKG** (FIH, PLAINTEXT_NOAUTH) – installierbar auf einer PS5 mit Debug-Modus.
-- Gebaut wird mit der eingebauten Engine (`--no-sony-sdk`). Der Sony-SDK-Weg (Update-Pakete mit
-  `--sdk-reference`) braucht Wine und ist nicht enthalten.
+- Full-FPKGs werden mit der eingebauten Engine (`--no-sony-sdk`) gebaut. Separate Backport-PKGs
+  nutzen den Sony-SDK-Reference-Weg von `fpkg-cli` (`--sdk-reference`) und brauchen eine passende
+  Base / Referenz-PKG. Der Linux-Container installiert dafür Wine, wie es PSVIETHOA für den
+  Sony-SDK-Buildweg unter Linux vorsieht.
 - `fakelib/libSceAmpr.sprx` entfernt der Builder **immer** aus dem Paket, auch mit `--keep-ampr`
   (das betrifft nur `ampr_emu.index`). Die Oberfläche warnt, wenn ein Fix diese Datei enthält.
 - Der Builder lässt Unreal-Dump-Reste (`Engine/Saved`, `<Projekt>/Saved`, `_DUBLEX_`) standardmäßig weg.
