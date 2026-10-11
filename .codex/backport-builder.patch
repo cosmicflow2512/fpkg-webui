@@ -1,0 +1,360 @@
+diff --git a/app/index.html b/app/index.html
+index 248e67e..439addf 100644
+--- a/app/index.html
++++ b/app/index.html
+@@ -139,6 +139,13 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
+ <main>
+   <section class="card">
+     <h2>Neuer Auftrag</h2>
++    <label class="f" for="mode">Auftragsart</label>
++    <select id="mode">
++      <option value="full">FPKG erstellen / Fix einbauen</option>
++      <option value="backport">Separate Backport-PKG erstellen</option>
++    </select>
++    <div class="hint" id="mode-hint">Quelle ist das Spiel; Fix/Backport wird optional in die Full-FPKG eingebaut.</div>
++
+     <label class="f" for="src">Quelle</label>
+     <div class="row"><input id="src" type="text" placeholder="Datei oder Ordner wählen"><button data-pick="src" title="Durchsuchen">…</button></div>
+     <div class="hint" id="src-hint">7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)</div>
+@@ -151,6 +158,12 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
+     <div class="hint" id="fix-hint">Archiv oder Ordner; Dateien ersetzen gleichnamige im App-Ordner</div>
+     <div id="fix-sug" class="sug"></div>
+ 
++    <div id="ref-wrap" style="display:none">
++      <label class="f" for="reference_pkg">Base / Referenz-PKG</label>
++      <div class="row"><input id="reference_pkg" type="text" placeholder="Base .pkg oder Archiv/Ordner mit .pkg wählen"><button data-pick="reference_pkg" title="Durchsuchen">…</button></div>
++      <div class="hint" id="reference_pkg-hint">Die Base wird nur als Referenz für die separate Backport-PKG benutzt und nicht kopiert.</div>
++    </div>
++
+     <label class="f" for="out">Ausgabeordner</label>
+     <div class="row"><input id="out" type="text"><button data-pick="out" data-dir="1" title="Durchsuchen">…</button></div>
+     <div class="hint" id="out-hint"></div>
+@@ -313,7 +326,7 @@ const ACTIVE = ['queued','running','waiting','ready'];
+ let CFG = {}, sel = null, logOff = -1, logFor = null, srcKind = null;
+ 
+ // ---------- form persistence (per browser)
+-const FIELDS = ['src','fix','out','work','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'];
++const FIELDS = ['mode','src','fix','reference_pkg','out','work','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'];
+ // _def_out/_def_work remember the server defaults at save time: a saved value that was just the old default
+ // follows a changed DEFAULT_OUT/DEFAULT_WORK instead of sticking (forms saved before 1.2.2: /output, /work).
+ const DEF_KEYS = {out:'_def_out', work:'_def_work'}, OLD_DEF = {out:'/output', work:'/work'};
+@@ -323,6 +336,31 @@ function loadForm(){ try{ const o=JSON.parse(localStorage.getItem('fpkg-form')||
+     if(k in DEF_KEYS && o[k]===(o[DEF_KEYS[k]] ?? OLD_DEF[k])) return;  // was the default -> keep current server default
+     const e=$('#'+k); if(e.type==='checkbox') e.checked=o[k]; else e.value=o[k]; }); }catch(e){} }
+ 
++function modeIsBackport(){ return $('#mode').value === 'backport'; }
++function updMode(){
++  const bp = modeIsBackport();
++  $('#mode-hint').textContent = bp
++    ? 'Quelle ist der Backport-Ordner oder das Backport-Archiv; dazu eine Base / Referenz-PKG wählen.'
++    : 'Quelle ist das Spiel; Fix/Backport wird optional in die Full-FPKG eingebaut.';
++  $('#src-hint').textContent = bp
++    ? 'Backport-Dateien als Ordner oder Archiv wählen (z. B. eboot.bin + sce_sys/param.json).'
++    : '7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)';
++  $('#ref-wrap').style.display = bp ? '' : 'none';
++  $('#fix').disabled = bp;
++  document.querySelector('[data-pick="fix"]').disabled = bp;
++  $('#fix-clear').disabled = bp;
++  if (bp) {
++    $('#fix').value = '';
++    $('#fix-hint').className = 'hint';
++    $('#fix-hint').textContent = 'im Backport-Modus deaktiviert: die Quelle ist bereits der Backport';
++    $('#fix-sug').innerHTML = '';
++  } else if (!$('#fix').value.trim()) {
++    $('#fix-hint').className = 'hint';
++    $('#fix-hint').textContent = 'Archiv oder Ordner; Dateien ersetzen gleichnamige im App-Ordner';
++  }
++  $('#start').textContent = bp ? 'Backport-PKG erstellen' : 'FPKG erstellen';
++}
++
+ // ---------- probes
+ let probeT = {};
+ function probeLater(id){ clearTimeout(probeT[id]); probeT[id] = setTimeout(()=>probe(id), 400); }
+@@ -330,6 +368,7 @@ function updDel(){ const on = srcKind==='archive'; $('#lbl-del').classList.toggl
+ async function probe(id){
+   const v = $('#'+id).value.trim(), h = $('#'+id+'-hint');
+   if (id==='src') { srcKind=null; updDel(); $('#fix-sug').innerHTML=''; }
++  if (id==='reference_pkg' && !v){ h.className='hint'; h.textContent='Base .pkg oder Archiv/Ordner mit .pkg wählen'; return; }
+   if (id==='fix' && !v){ h.className='hint'; h.textContent='ohne Fix'; return; }
+   if (!v){ h.className='hint'; h.textContent=''; return; }
+   h.className='hint'; h.textContent='prüfe …';
+@@ -342,10 +381,10 @@ async function probe(id){
+     if (r.param) t += ' · '+r.param;
+     if (r.note) t += ' · '+r.note;
+     if (r.encrypted) t += ' · 🔒 passwortgeschützt';
+-    if (id==='src' || id==='fix') { if (r.encrypted) $('#pw-wrap').style.display=''; }
++    if (id==='src' || id==='fix' || id==='reference_pkg') { if (r.encrypted) $('#pw-wrap').style.display=''; }
+     if (r.path !== v && id==='src') t += ' · verwendet: '+r.path.split('/').slice(-2).join('/');
+     h.className='hint ok'; h.textContent=t;
+-    if (id==='src'){ srcKind=r.kind; updDel(); fixSuggest(r); }
++    if (id==='src'){ srcKind=r.kind; updDel(); if(!modeIsBackport()) fixSuggest(r); }
+   }catch(e){
+     if (id==='fix'){ h.className='hint'; h.textContent='Fix-Ordner (Inhalt wird beim Lauf geprüft)'; return; }
+     h.className='hint err'; h.textContent=e.message;
+@@ -402,23 +441,25 @@ async function fbLoad(p){
+     L.appendChild(d);
+   });
+ }
+-function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); if(fbTarget==='pk-dir') return loadPkgs(); if(fbTarget.startsWith('s-')) return; saveForm(); if(fbTarget==='src'||fbTarget==='fix') probe(fbTarget); else freeHint(fbTarget); }
++function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); if(fbTarget==='pk-dir') return loadPkgs(); if(fbTarget.startsWith('s-')) return; saveForm(); if(fbTarget==='src'||fbTarget==='fix'||fbTarget==='reference_pkg') probe(fbTarget); else freeHint(fbTarget); }
+ $('#fb-here').onclick = () => fbPath && choose(fbPath);
+ $('#fb-home').onclick = () => fbLoad('');
+ $('#fb-cancel').onclick = () => $('#fb').close();
+ document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => fbOpen(b.dataset.pick, !!b.dataset.dir));
+ $('#fix-clear').onclick = () => { $('#fix').value=''; saveForm(); probe('fix'); };
+-['src','fix'].forEach(id => $('#'+id).addEventListener('input', ()=>{ saveForm(); probeLater(id); }));
++['src','fix','reference_pkg'].forEach(id => $('#'+id).addEventListener('input', ()=>{ saveForm(); probeLater(id); }));
+ ['out','work'].forEach(id => $('#'+id).addEventListener('change', ()=>{ saveForm(); freeHint(id); }));
+ ['preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'].forEach(id => $('#'+id).addEventListener('change', saveForm));
++$('#mode').addEventListener('change', ()=>{ updMode(); saveForm(); probe('src'); });
+ 
+ // ---------- start
+ $('#start').onclick = async () => {
+   $('#start-err').textContent='';
+-  const b = {source:$('#src').value.trim(), fix:$('#fix').value.trim(), out:$('#out').value.trim(), work:$('#work').value.trim(),
++  const b = {mode:$('#mode').value, source:$('#src').value.trim(), fix:$('#fix').value.trim(), reference_pkg:$('#reference_pkg').value.trim(), out:$('#out').value.trim(), work:$('#work').value.trim(),
+              preset:$('#preset').value, confirm:$('#confirm').checked, cleanup:$('#cleanup').checked,
+              keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked, checksum:$('#checksum').checked, full_verify:$('#full_verify').checked, password:$('#password').value};
+   if (!b.source){ $('#start-err').textContent='Quelle fehlt'; return; }
++  if (b.mode==='backport' && !b.reference_pkg){ $('#start-err').textContent='Base / Referenz-PKG fehlt'; return; }
+   if (b.delete_archive && !confirm('Das Quellarchiv wird nach erfolgreichem Entpacken GELÖSCHT. Fortfahren?')) return;
+   $('#start').disabled=true;
+   try{ const j = await post('/api/jobs', b); showTab('jobs'); select(j.id); await refresh(); }
+@@ -444,7 +485,11 @@ function ask(title, bullets, yes, no='Zurück'){
+ 
+ // ---------- jobs
+ let JOBLIST=[], curJob=null;
+-function title(j){ const s=j.params.source.split('/').pop(); return j.params.fix ? s+'  +  '+j.params.fix.split('/').pop() : s; }
++function title(j){
++  const s=j.params.source.split('/').pop();
++  if (j.params.mode === 'backport') return 'Backport: '+s+'  gegen  '+(j.params.reference_pkg||'Base').split('/').pop();
++  return j.params.fix ? s+'  +  '+j.params.fix.split('/').pop() : s;
++}
+ function overall(j){ if(!j.plan||!j.plan.length) return null; const n=j.plan.length; const d=j.plan.filter(x=>x.state==='done').length; const a=j.plan.findIndex(x=>x.state==='active'); const pct=(j.prog&&j.prog.pct!=null)?j.prog.pct/100:0; return Math.min(100,((d+(a>=0?pct:0))/n)*100); }
+ function jobRow(j){
+   const d=document.createElement('div'); d.className='job'+(j.id===sel?' sel':'');
+@@ -632,8 +677,8 @@ $('#w-scan').onclick = () => post('/api/watch/scan').then(()=>setTimeout(loadWat
+   CFG = await api('/api/config');
+   $('#ver').textContent = 'v'+CFG.version;
+   $('#out').value = CFG.out; $('#work').value = CFG.work; $('#pk-dir').value = CFG.out;
+-  loadForm(); updDel();
+-  probe('src'); probe('fix'); freeHint('out'); freeHint('work');
++  loadForm(); updMode(); updDel();
++  probe('src'); probe('fix'); probe('reference_pkg'); freeHint('out'); freeHint('work');
+   await refresh(); pollLog();
+   setInterval(refresh, 3000); setInterval(pollLog, 1200); setInterval(()=>{ if(curTab==='set') loadWatch(); }, 5000); setInterval(()=>{ if(curTab==='pkgs') loadChecks(); }, 1500);
+   try{ const s=await api('/api/settings'); if(!localStorage.getItem('fpkg-form')) $('#checksum').checked=!!s.checksum; }catch(e){}
+diff --git a/app/server.py b/app/server.py
+index 8250669..eb6fa30 100644
+--- a/app/server.py
++++ b/app/server.py
+@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, quote, urlparse
+ 
+ from exfat import ExfatError, ExfatImage
+ 
+-APP_VERSION = "1.2.5"
++APP_VERSION = "1.3.0-dev"
+ ENV = os.environ.get
+ PORT = int(ENV("PORT", "8095"))
+ DATA = ENV("DATA_DIR", "/config")
+@@ -921,6 +921,7 @@ class Job:
+         self.go = threading.Event()
+         self.keep_work = False
+         self.build_src = None
++        self.reference_pkg = None
+         self.fix_files = []
+         self.reserve = 0
+         self.src_bytes = None
+@@ -1129,11 +1130,13 @@ class Job:
+     # -- pipeline
+     def prepare(self):
+         p = self.params
++        mode = p.get("mode", "full")
+         self.started = time.time()
+         os.makedirs(self.work, exist_ok=True)
+         tmp = os.path.join(self.work, "tmp")
+         os.makedirs(tmp, exist_ok=True)
+-        self.log(f"FPKG WebUI {APP_VERSION} · Job {self.id}\nQuelle: {p['source']}\nFix:    {p.get('fix') or '-'}\n"
++        self.log(f"FPKG WebUI {APP_VERSION} · Job {self.id}\nModus:  {mode}\nQuelle: {p['source']}\n"
++                 f"Fix:    {p.get('fix') or '-'}\nBase:   {p.get('reference_pkg') or '-'}\n"
+                  f"Ziel:   {p['out']}\nArbeit: {self.work}\n"
+                  f"Optionen: preset={p.get('preset')} anhalten={p.get('confirm')} aufräumen={p.get('cleanup')} "
+                  f"archiv_löschen={p.get('delete_archive')} keep_ampr={p.get('keep_ampr')} keep_dump={p.get('keep_dump')}")
+@@ -1142,6 +1145,19 @@ class Job:
+         self.log(f"Erkannt: {kind} -> {src}")
+         fix = p.get("fix")
+         plan = []
++        reference_pkg = None
++        ref_kind = None
++        ref_src = p.get("reference_pkg")
++        if mode == "backport":
++            if fix:
++                raise JobError("Im Modus 'Backport-PKG' ist 'Quelle' der Backport. Das Feld 'Fix' bleibt leer.")
++            if not ref_src:
++                raise JobError("Backport-PKG braucht eine Base / Referenz-PKG.")
++            ref_kind, reference_pkg = classify(ref_src)
++            if ref_kind == "archive":
++                plan.append("Base entpacken")
++            elif ref_kind != "pkg":
++                raise JobError("Base / Referenz muss eine .pkg sein oder ein Archiv/Ordner, der eine .pkg enthält.")
+         sums = find_checksums(src) if p.get("checksum", True) and os.path.isfile(src) else {}
+         if sums:
+             plan.append("Prüfsumme")
+@@ -1155,11 +1171,24 @@ class Job:
+             plan.append("App-Ordner kopieren")
+         if fix:
+             plan += ["Fix übernehmen"]
+-        plan += ["Quelle prüfen"] + (["Freigabe"] if p.get("confirm") else []) + ["FPKG bauen", "Paket prüfen"]
++        build_label = "Backport bauen" if mode == "backport" else "FPKG bauen"
++        plan += ["Quelle prüfen"] + (["Freigabe"] if p.get("confirm") else []) + [build_label, "Paket prüfen"]
+         if p.get("cleanup"):
+             plan.append("Aufräumen")
+         self.set_plan(plan)
+ 
++        if mode == "backport" and ref_kind == "archive":
++            self.set_step("Base entpacken")
++            rdst = os.path.join(self.work, "reference")
++            self.sevenz(reference_pkg, rdst)
++            strip_junk(rdst)
++            ref_kind, reference_pkg = classify(rdst)
++            if ref_kind != "pkg":
++                raise JobError("Im Base-Archiv wurde keine .pkg gefunden.")
++            self.log(f"Base / Referenz-PKG: {reference_pkg}")
++        elif mode == "backport":
++            self.log(f"Base / Referenz-PKG: {reference_pkg}")
++
+         if sums:
+             self.set_step("Prüfsumme")
+             self.verify_checksums(src, kind, sums)
+@@ -1208,8 +1237,12 @@ class Job:
+         elif kind in ("ffpfsc", "ffpkg"):
+             if fix:
+                 raise JobError(f".{kind}-Images lassen sich nicht patchen. Ohne Fix bauen oder als Ordner/.exfat bereitstellen.")
++            if mode == "backport":
++                raise JobError(f".{kind}-Images eignen sich nicht als Backport-Quelle. Backport-Ordner oder -Archiv wählen.")
+             build_src = src
+         elif kind == "pkg":
++            if mode == "backport":
++                raise JobError("Als Backport-Quelle bitte Backport-Dateien/Archiv/Ordner wählen, nicht eine fertige .pkg.")
+             self.set_step("FPKG entpacken")
+             dst = os.path.join(self.work, "app")
+             self.run([CLI, "pkg-extract", src, "--output", dst, "--temp", tmp], parse_fpkg)
+@@ -1258,7 +1291,7 @@ class Job:
+         if rc != 0 or "eboot.bin: no" in out or "sce_sys: no" in out:
+             raise JobError("inspect: Quelle ungültig (sce_sys oder eboot.bin fehlt?) – siehe Log")
+ 
+-        self.build_src, self.fix_files, self.tmp = build_src, fix_files, tmp
++        self.build_src, self.fix_files, self.tmp, self.reference_pkg = build_src, fix_files, tmp, reference_pkg
+         self.reserve = int((self.src_bytes or 0) * 0.6)
+         if p.get("confirm"):
+             self.set_step("Freigabe")
+@@ -1276,13 +1309,18 @@ class Job:
+ 
+     def build(self):
+         p = self.params
++        mode = p.get("mode", "full")
+         build_src, fix_files, tmp = self.build_src, self.fix_files, self.tmp
+         self.phase = "build"
+-        self.set_step("FPKG bauen")
++        self.set_step("Backport bauen" if mode == "backport" else "FPKG bauen")
+         stage = os.path.join(p["out"], ".building-" + self.id)
+         os.makedirs(stage, exist_ok=True)
+-        cmd = [CLI, "build", "--source", build_src, "--output", stage, "--temp", tmp,
+-               "--no-sony-sdk", "--no-sleep-guard", "--preset", p.get("preset") or "standard"]
++        cmd = [CLI, "build", "--source", build_src, "--output", stage, "--temp", tmp, "--no-sleep-guard",
++               "--preset", p.get("preset") or "standard"]
++        if mode == "backport":
++            cmd += ["--sdk-reference", self.reference_pkg]
++        else:
++            cmd.append("--no-sony-sdk")
+         if p.get("keep_ampr"):
+             cmd.append("--keep-ampr")
+         if p.get("keep_dump"):
+@@ -1308,7 +1346,7 @@ class Job:
+ 
+         self.set_step("Paket prüfen")
+         rc, info = self.capture([CLI, "pkg-info", final])
+-        res = {"pkg": final, "size": os.path.getsize(final)}
++        res = {"pkg": final, "size": os.path.getsize(final), "mode": mode}
+         for key, rx in (("content_id", r"Content ID:\s*(\S+)"), ("version", r"contentVersion:\s*(\S+)"),
+                         ("fw", r"Required system software:\s*(\S+)"), ("title", r"Title:\s*(.+)")):
+             m = re.search(rx, info)
+@@ -1826,6 +1864,8 @@ def selftest():
+     rc, z = cmd_out([SEVENZ, "i"], 15)
+     checks.append({"name": "7-Zip vorhanden (inkl. RAR)", "ok": rc == 0 and " Rar5 " in z,
+                    "detail": next((ln for ln in z.splitlines() if "7-Zip" in ln), "")})
++    wine = shutil.which("wine64") or shutil.which("wine")
++    checks.append({"name": "Wine für Sony-SDK/Backport vorhanden", "ok": bool(wine), "detail": wine or "wine64/wine fehlt"})
+     rs = roots()
+     checks.append({"name": "Freigegebene Ordner gefunden", "ok": bool(rs), "detail": ", ".join(rs) or ROOTS_SPEC})
+     for r in rs:
+@@ -2052,9 +2092,12 @@ class H(BaseHTTPRequestHandler):
+         try:
+             if u.path == "/api/jobs":
+                 b = self.body()
++                mode = b.get("mode") if b.get("mode") in ("full", "backport") else "full"
+                 params = {
++                    "mode": mode,
+                     "source": safe_path((b.get("source") or "").strip()),
+                     "fix": safe_path(b["fix"].strip()) if (b.get("fix") or "").strip() else None,
++                    "reference_pkg": safe_path(b["reference_pkg"].strip()) if (b.get("reference_pkg") or "").strip() else None,
+                     "out": safe_path((b.get("out") or "").strip() or DEF_OUT, must_exist=False),
+                     "work": safe_path((b.get("work") or "").strip() or DEF_WORK, must_exist=False),
+                     "preset": b.get("preset") if b.get("preset") in ("fast", "standard", "smallest") else "standard",
+@@ -2068,6 +2111,11 @@ class H(BaseHTTPRequestHandler):
+                     "password": (b.get("password") or "")[:500],
+                     "origin": "manual",
+                 }
++                if params["mode"] == "backport":
++                    if params["fix"]:
++                        raise JobError("Im Modus 'Backport-PKG' ist das Feld 'Fix' deaktiviert. Backport-Dateien als Quelle wählen.")
++                    if not params["reference_pkg"]:
++                        raise JobError("Base / Referenz-PKG fehlt.")
+                 if params["delete_archive"] and classify(params["source"])[0] != "archive":
+                     params["delete_archive"] = False
+                 return self.send(200, enqueue(params).public())
+diff --git a/docs/ANLEITUNG.md b/docs/ANLEITUNG.md
+index 4ca3224..a03631a 100644
+--- a/docs/ANLEITUNG.md
++++ b/docs/ANLEITUNG.md
+@@ -1,6 +1,6 @@
+ # fpkg-webui – Handbuch
+ 
+-Stand: Version 1.2.5 · fpkg-cli 2.2.6 · 7-Zip 25.01
++Stand: Version 1.3.0-dev · fpkg-cli 2.2.6 · 7-Zip 25.01
+ 
+ Dieses Handbuch beschreibt jede Funktion der Oberfläche, was dabei im Hintergrund passiert und wie
+ die Anwendung aufgebaut ist. Kurzfassung und Installation stehen im [README](../README.md).
+@@ -96,9 +96,11 @@ folgen einem geänderten `DEFAULT_OUT` / `DEFAULT_WORK`.
+ 
+ | Element | Text in der Oberfläche | Was dahinter passiert |
+ |---|---|---|
++| **Auftragsart** | „FPKG erstellen / Fix einbauen“ oder „Separate Backport-PKG erstellen“ | `mode=full` baut eine Full-FPKG mit `--no-sony-sdk`. `mode=backport` baut eine separate Backport-PKG mit `--sdk-reference` gegen eine Base / Referenz-PKG. Der Container bringt Wine für den Sony-SDK-Pfad mit |
+ | **Quelle** + „…“ | „Datei oder Ordner wählen“ · Hinweis: „7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)“ | „…“ öffnet den Dateibrowser (`/api/ls`). Eingabe oder Auswahl prüft nach 400 ms per `/api/probe?fixes=1`: Art (`classify`), alle Teile (`archive_volumes`), Verschlüsselung und Title-ID (`7z l -slt`), bei Ordnern und Images `fpkg-cli inspect`, bei `.pkg` `fpkg-cli pkg-info`. Ergebnis grün unter dem Feld, z. B. „Archiv (185 Teile) · 92 GB“ |
+ | **Archiv-Passwort** | nur bei verschlüsselten Archiven · „leer = Passwörter aus den Einstellungen probieren“ · „gilt für Quelle und Fix · wird nicht im Log angezeigt“ | wird mit dem Auftrag übergeben, nie in `jobs.json` gespeichert |
+ | **Fix / Backport** + „…“ + „✕“ | „leer = ohne Fix“ · „Archiv oder Ordner; Dateien ersetzen gleichnamige im App-Ordner“ | `/api/probe` für den Fix. „✕“ leert das Feld |
++| **Base / Referenz-PKG** | nur bei „Separate Backport-PKG erstellen“ | `.pkg`, Archiv oder Ordner mit `.pkg`. Archive werden in den Arbeitsordner entpackt; die Base wird nicht in den Ausgabeordner kopiert |
+ | Fix-Vorschläge | „Passend zu PPSA…:“ · „Kein Fix für … – im Fix-Ordner:“ · „Title-ID unbekannt – im Fix-Ordner:“ · „N weitere zeigen“ | aus der Probe der Quelle: `list_fixes(Fix-Ordner, Title-ID)`. Ein Klick setzt das Fix-Feld |
+ | **Ausgabeordner** + „…“ | „frei: … von …“ | `/api/free` |
+ | ☑ **Vor dem Bauen anhalten** | „zeigt erkannte Version und Fix-Abgleich, Bauen erst nach Klick“ | Auftrag endet nach der Vorbereitung im Status *Freigabe* |
+@@ -151,7 +153,7 @@ neu gestartet*.
+ 
+ | Schritt | Was passiert | Werkzeug |
+ |---|---|---|
+-| FPKG bauen | baut in `<Ausgabe>/.building-<id>`, benennt danach auf den Namen von fpkg-cli um. Ein halbfertiges Paket trägt nie den echten Namen. Existiert der Name schon, wird `-<Auftrags-ID>` angehängt. Besitzer wird `PUID:PGID` | `fpkg-cli build --source … --output … --temp … --no-sony-sdk --no-sleep-guard --preset …` |
++| FPKG bauen | baut in `<Ausgabe>/.building-<id>`, benennt danach auf den Namen von fpkg-cli um. Ein halbfertiges Paket trägt nie den echten Namen. Existiert der Name schon, wird `-<Auftrags-ID>` angehängt. Besitzer wird `PUID:PGID` | Full-FPKG: `fpkg-cli build --source … --output … --temp … --no-sony-sdk --no-sleep-guard --preset …`; separate Backport-PKG: `fpkg-cli build --source … --output … --temp … --sdk-reference <Base.pkg> --no-sleep-guard --preset …` |
+ | Paket prüfen | Titel, Version, benötigte Firmware, Content-ID lesen; Dateiliste mit den Fix-Dateien abgleichen (fehlende → Warnung); Schnell- oder Vollprüfung | `fpkg-cli pkg-info`, `pkg-list`, `verify [--full]` |
+ | Aufräumen | Arbeitsordner löschen | — |
+ 
+@@ -339,9 +341,8 @@ sie maskiert.
+ 
+ ## 14. Grenzen
+ 
+-- **Keine separaten Update-, Backport- oder Fix-Pakete.** fpkg-cli baut Update-Pakete nur über das
+-  Sony SDK (`--sdk-reference`, Publishing Tools 2.79). Das ist nicht im Container enthalten; die
+-  eingebaute Engine kennt nur `--kind app|homebrew|dlc`. Ein Fix geht nur ins Spiel-Paket.
++- Separate Backport-PKGs nutzen den `fpkg-cli`-Pfad mit `--sdk-reference` und Wine. Dafür muss eine
++  passende Base / Referenz-PKG gewählt werden; die Konsole muss genau diese Base installiert haben.
+ - Kein Fix auf `.ffpfsc` / `.ffpkg`.
+ - `fakelib/libSceAmpr.sprx` landet nie im Paket.
+ - Ergebnis sind immer Debug-FPKGs.
