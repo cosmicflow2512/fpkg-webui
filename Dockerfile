@@ -50,4 +50,4 @@ ENV PORT=8095 \
 EXPOSE 8095
 HEALTHCHECK --interval=60s --timeout=10s --start-period=20s \
   CMD python3 -c "import urllib.request,sys;urllib.request.urlopen('http://127.0.0.1:8095/api/config',timeout=5)" || exit 1
-CMD ["python3", "/app/server.py"]
+CMD ["sh", "-lc", "Xvfb :99 -screen 0 1024x768x24 -nolisten tcp >/tmp/xvfb.log 2>&1 & exec python3 /app/server.py"]
