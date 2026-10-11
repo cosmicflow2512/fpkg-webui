@@ -38,6 +38,9 @@ SEVENZ = ENV("SEVENZ", "7z")
 ROOTS_SPEC = ENV("BROWSE_ROOTS", "/shares/*:/output:/work")
 DEF_OUT = ENV("DEFAULT_OUT", "/output")
 DEF_WORK = ENV("DEFAULT_WORK", "/work")
+# Persistenter Ordner: das Base-Paket wird hier einmal ganz entpackt und für alle Backports wiederverwendet.
+# Leer lassen (BASE_CACHE_DIR=) schaltet die Funktion ab.
+BASE_CACHE = ENV("BASE_CACHE_DIR", "/work/base-cache")
 PUID, PGID = int(ENV("PUID", "99")), int(ENV("PGID", "100"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 STARTED = time.time()
@@ -1307,6 +1310,25 @@ class Job:
             self.log("== Vorbereitet, wartet auf freien Build-Platz.")
         save_jobs()
 
+    def ensure_base_folder(self):
+        """Entpackt das Base-Paket einmal vollständig in BASE_CACHE; danach liest fpkg-cli fehlende Dateien von dort."""
+        if not BASE_CACHE or not self.reference_pkg:
+            return None
+        name = os.path.splitext(os.path.basename(self.reference_pkg))[0]
+        dst = os.path.join(BASE_CACHE, name)
+        marker = dst + ".complete"
+        if os.path.exists(marker):
+            self.log(f"Base-Ordner vorhanden, wird wiederverwendet: {dst}")
+            return dst
+        self.log(f"Base-Ordner fehlt, wird einmalig entpackt: {dst}")
+        shutil.rmtree(dst, ignore_errors=True)
+        os.makedirs(dst, exist_ok=True)
+        self.set_step("Base-Paket einmalig entpacken")
+        self.run([CLI, "pkg-extract", self.reference_pkg, "--output", dst,
+                  "--temp", os.path.join(BASE_CACHE, "tmp")], parse_fpkg)
+        open(marker, "w").close()
+        return dst
+
     def build(self):
         p = self.params
         mode = p.get("mode", "full")
@@ -1319,6 +1341,9 @@ class Job:
                "--preset", p.get("preset") or "standard"]
         if mode == "backport":
             cmd += ["--sdk-reference", self.reference_pkg]
+            base = self.ensure_base_folder()
+            if base:
+                cmd += ["--sdk-base-folder", base]
         else:
             cmd.append("--no-sony-sdk")
         if p.get("keep_ampr"):
