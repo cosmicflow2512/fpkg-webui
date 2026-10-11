@@ -10,7 +10,9 @@ LABEL org.opencontainers.image.title="fpkg-webui" \
       org.opencontainers.image.source="https://github.com/cosmicflow2512/fpkg-webui"
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl xz-utils libicu72 libssl3 python3 wine64 \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates curl xz-utils libicu72 libssl3 python3 procps \
+      wine wine64 fonts-wine winbind xvfb \
  && rm -rf /var/lib/apt/lists/*
 
 # PSVIETHOA fpkg-cli (CLI only, the desktop GUI is removed)
@@ -37,9 +39,10 @@ ENV PORT=8095 \
     DEFAULT_OUT=/output \
     DEFAULT_WORK=/work \
     DATA_DIR=/config \
-    HOME=/tmp \
-    WINEPREFIX=/tmp/fpkg-wine \
+    HOME=/config \
+    WINEPREFIX=/config/wine-prefix \
     WINEDEBUG=-all \
+    DISPLAY=:99 \
     PUID=99 PGID=100 \
     LOG_LEVEL=INFO \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
