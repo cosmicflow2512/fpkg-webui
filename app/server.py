@@ -1311,22 +1311,40 @@ class Job:
         save_jobs()
 
     def ensure_base_folder(self):
-        """Entpackt das Base-Paket einmal vollständig in BASE_CACHE; danach liest fpkg-cli fehlende Dateien von dort."""
+        """Entpackt das Base-Paket einmal vollständig in BASE_CACHE; danach liest fpkg-cli fehlende Dateien von dort.
+        Der Marker trägt Größe und mtime der Referenz-PKG: wird unter demselben Namen eine neu gebaute
+        Base abgelegt (gleicher Dateiname, anderer Inhalt), erkennt das den veralteten Cache-Ordner und
+        baut ihn neu, statt eine Backport-PKG stillschweigend gegen eine alte Base zu bauen."""
         if not BASE_CACHE or not self.reference_pkg:
             return None
+        try:
+            st = os.stat(self.reference_pkg)
+            fp = f"{st.st_size}:{int(st.st_mtime)}"
+        except OSError:
+            fp = None
         name = os.path.splitext(os.path.basename(self.reference_pkg))[0]
         dst = os.path.join(BASE_CACHE, name)
         marker = dst + ".complete"
         if os.path.exists(marker):
-            self.log(f"Base-Ordner vorhanden, wird wiederverwendet: {dst}")
-            return dst
-        self.log(f"Base-Ordner fehlt, wird einmalig entpackt: {dst}")
+            stale = fp is None
+            if not stale:
+                try:
+                    stale = open(marker).read().strip() != fp
+                except OSError:
+                    stale = True
+            if not stale:
+                self.log(f"Base-Ordner vorhanden, wird wiederverwendet: {dst}")
+                return dst
+            self.log(f"Base-Ordner veraltet (Referenz-PKG hat sich geändert), wird neu entpackt: {dst}")
+        else:
+            self.log(f"Base-Ordner fehlt, wird einmalig entpackt: {dst}")
         shutil.rmtree(dst, ignore_errors=True)
         os.makedirs(dst, exist_ok=True)
         self.set_step("Base-Paket einmalig entpacken")
         self.run([CLI, "pkg-extract", self.reference_pkg, "--output", dst,
                   "--temp", os.path.join(BASE_CACHE, "tmp")], parse_fpkg)
-        open(marker, "w").close()
+        with open(marker, "w") as f:
+            f.write(fp or "")
         return dst
 
     def build(self):
