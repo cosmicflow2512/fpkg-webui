@@ -1,6 +1,6 @@
 # fpkg-webui – Handbuch
 
-Stand: Version 1.2.5 · fpkg-cli 2.2.6 · 7-Zip 25.01
+Stand: Version 1.3.0-dev · fpkg-cli 2.2.6 · 7-Zip 25.01
 
 Dieses Handbuch beschreibt jede Funktion der Oberfläche, was dabei im Hintergrund passiert und wie
 die Anwendung aufgebaut ist. Kurzfassung und Installation stehen im [README](../README.md).
@@ -96,9 +96,11 @@ folgen einem geänderten `DEFAULT_OUT` / `DEFAULT_WORK`.
 
 | Element | Text in der Oberfläche | Was dahinter passiert |
 |---|---|---|
+| **Auftragsart** | „FPKG erstellen / Fix einbauen“ oder „Separate Backport-PKG erstellen“ | `mode=full` baut eine Full-FPKG mit `--no-sony-sdk`. `mode=backport` baut eine separate Backport-PKG mit `--sdk-reference` gegen eine Base / Referenz-PKG. Der Container bringt Wine für den Sony-SDK-Pfad mit |
 | **Quelle** + „…“ | „Datei oder Ordner wählen“ · Hinweis: „7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)“ | „…“ öffnet den Dateibrowser (`/api/ls`). Eingabe oder Auswahl prüft nach 400 ms per `/api/probe?fixes=1`: Art (`classify`), alle Teile (`archive_volumes`), Verschlüsselung und Title-ID (`7z l -slt`), bei Ordnern und Images `fpkg-cli inspect`, bei `.pkg` `fpkg-cli pkg-info`. Ergebnis grün unter dem Feld, z. B. „Archiv (185 Teile) · 92 GB“ |
 | **Archiv-Passwort** | nur bei verschlüsselten Archiven · „leer = Passwörter aus den Einstellungen probieren“ · „gilt für Quelle und Fix · wird nicht im Log angezeigt“ | wird mit dem Auftrag übergeben, nie in `jobs.json` gespeichert |
 | **Fix / Backport** + „…“ + „✕“ | „leer = ohne Fix“ · „Archiv oder Ordner; Dateien ersetzen gleichnamige im App-Ordner“ | `/api/probe` für den Fix. „✕“ leert das Feld |
+| **Base / Referenz-PKG** | nur bei „Separate Backport-PKG erstellen“ | `.pkg`, Archiv oder Ordner mit `.pkg`. Archive werden in den Arbeitsordner entpackt; die Base wird nicht in den Ausgabeordner kopiert |
 | Fix-Vorschläge | „Passend zu PPSA…:“ · „Kein Fix für … – im Fix-Ordner:“ · „Title-ID unbekannt – im Fix-Ordner:“ · „N weitere zeigen“ | aus der Probe der Quelle: `list_fixes(Fix-Ordner, Title-ID)`. Ein Klick setzt das Fix-Feld |
 | **Ausgabeordner** + „…“ | „frei: … von …“ | `/api/free` |
 | ☑ **Vor dem Bauen anhalten** | „zeigt erkannte Version und Fix-Abgleich, Bauen erst nach Klick“ | Auftrag endet nach der Vorbereitung im Status *Freigabe* |
@@ -151,7 +153,7 @@ neu gestartet*.
 
 | Schritt | Was passiert | Werkzeug |
 |---|---|---|
-| FPKG bauen | baut in `<Ausgabe>/.building-<id>`, benennt danach auf den Namen von fpkg-cli um. Ein halbfertiges Paket trägt nie den echten Namen. Existiert der Name schon, wird `-<Auftrags-ID>` angehängt. Besitzer wird `PUID:PGID` | `fpkg-cli build --source … --output … --temp … --no-sony-sdk --no-sleep-guard --preset …` |
+| FPKG bauen | baut in `<Ausgabe>/.building-<id>`, benennt danach auf den Namen von fpkg-cli um. Ein halbfertiges Paket trägt nie den echten Namen. Existiert der Name schon, wird `-<Auftrags-ID>` angehängt. Besitzer wird `PUID:PGID` | Full-FPKG: `fpkg-cli build --source … --output … --temp … --no-sony-sdk --no-sleep-guard --preset …`; separate Backport-PKG: `fpkg-cli build --source … --output … --temp … --sdk-reference <Base.pkg> --no-sleep-guard --preset …` |
 | Paket prüfen | Titel, Version, benötigte Firmware, Content-ID lesen; Dateiliste mit den Fix-Dateien abgleichen (fehlende → Warnung); Schnell- oder Vollprüfung | `fpkg-cli pkg-info`, `pkg-list`, `verify [--full]` |
 | Aufräumen | Arbeitsordner löschen | — |
 
@@ -339,9 +341,8 @@ sie maskiert.
 
 ## 14. Grenzen
 
-- **Keine separaten Update-, Backport- oder Fix-Pakete.** fpkg-cli baut Update-Pakete nur über das
-  Sony SDK (`--sdk-reference`, Publishing Tools 2.79). Das ist nicht im Container enthalten; die
-  eingebaute Engine kennt nur `--kind app|homebrew|dlc`. Ein Fix geht nur ins Spiel-Paket.
+- Separate Backport-PKGs nutzen den `fpkg-cli`-Pfad mit `--sdk-reference` und Wine. Dafür muss eine
+  passende Base / Referenz-PKG gewählt werden; die Konsole muss genau diese Base installiert haben.
 - Kein Fix auf `.ffpfsc` / `.ffpkg`.
 - `fakelib/libSceAmpr.sprx` landet nie im Paket.
 - Ergebnis sind immer Debug-FPKGs.

@@ -29,7 +29,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.2.5"
+APP_VERSION = "1.3.0-dev"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -921,6 +921,7 @@ class Job:
         self.go = threading.Event()
         self.keep_work = False
         self.build_src = None
+        self.reference_pkg = None
         self.fix_files = []
         self.reserve = 0
         self.src_bytes = None
@@ -1129,11 +1130,13 @@ class Job:
     # -- pipeline
     def prepare(self):
         p = self.params
+        mode = p.get("mode", "full")
         self.started = time.time()
         os.makedirs(self.work, exist_ok=True)
         tmp = os.path.join(self.work, "tmp")
         os.makedirs(tmp, exist_ok=True)
-        self.log(f"FPKG WebUI {APP_VERSION} · Job {self.id}\nQuelle: {p['source']}\nFix:    {p.get('fix') or '-'}\n"
+        self.log(f"FPKG WebUI {APP_VERSION} · Job {self.id}\nModus:  {mode}\nQuelle: {p['source']}\n"
+                 f"Fix:    {p.get('fix') or '-'}\nBase:   {p.get('reference_pkg') or '-'}\n"
                  f"Ziel:   {p['out']}\nArbeit: {self.work}\n"
                  f"Optionen: preset={p.get('preset')} anhalten={p.get('confirm')} aufräumen={p.get('cleanup')} "
                  f"archiv_löschen={p.get('delete_archive')} keep_ampr={p.get('keep_ampr')} keep_dump={p.get('keep_dump')}")
@@ -1142,6 +1145,19 @@ class Job:
         self.log(f"Erkannt: {kind} -> {src}")
         fix = p.get("fix")
         plan = []
+        reference_pkg = None
+        ref_kind = None
+        ref_src = p.get("reference_pkg")
+        if mode == "backport":
+            if fix:
+                raise JobError("Im Modus 'Backport-PKG' ist 'Quelle' der Backport. Das Feld 'Fix' bleibt leer.")
+            if not ref_src:
+                raise JobError("Backport-PKG braucht eine Base / Referenz-PKG.")
+            ref_kind, reference_pkg = classify(ref_src)
+            if ref_kind == "archive":
+                plan.append("Base entpacken")
+            elif ref_kind != "pkg":
+                raise JobError("Base / Referenz muss eine .pkg sein oder ein Archiv/Ordner, der eine .pkg enthält.")
         sums = find_checksums(src) if p.get("checksum", True) and os.path.isfile(src) else {}
         if sums:
             plan.append("Prüfsumme")
@@ -1155,10 +1171,23 @@ class Job:
             plan.append("App-Ordner kopieren")
         if fix:
             plan += ["Fix übernehmen"]
-        plan += ["Quelle prüfen"] + (["Freigabe"] if p.get("confirm") else []) + ["FPKG bauen", "Paket prüfen"]
+        build_label = "Backport bauen" if mode == "backport" else "FPKG bauen"
+        plan += ["Quelle prüfen"] + (["Freigabe"] if p.get("confirm") else []) + [build_label, "Paket prüfen"]
         if p.get("cleanup"):
             plan.append("Aufräumen")
         self.set_plan(plan)
+
+        if mode == "backport" and ref_kind == "archive":
+            self.set_step("Base entpacken")
+            rdst = os.path.join(self.work, "reference")
+            self.sevenz(reference_pkg, rdst)
+            strip_junk(rdst)
+            ref_kind, reference_pkg = classify(rdst)
+            if ref_kind != "pkg":
+                raise JobError("Im Base-Archiv wurde keine .pkg gefunden.")
+            self.log(f"Base / Referenz-PKG: {reference_pkg}")
+        elif mode == "backport":
+            self.log(f"Base / Referenz-PKG: {reference_pkg}")
 
         if sums:
             self.set_step("Prüfsumme")
@@ -1208,8 +1237,12 @@ class Job:
         elif kind in ("ffpfsc", "ffpkg"):
             if fix:
                 raise JobError(f".{kind}-Images lassen sich nicht patchen. Ohne Fix bauen oder als Ordner/.exfat bereitstellen.")
+            if mode == "backport":
+                raise JobError(f".{kind}-Images eignen sich nicht als Backport-Quelle. Backport-Ordner oder -Archiv wählen.")
             build_src = src
         elif kind == "pkg":
+            if mode == "backport":
+                raise JobError("Als Backport-Quelle bitte Backport-Dateien/Archiv/Ordner wählen, nicht eine fertige .pkg.")
             self.set_step("FPKG entpacken")
             dst = os.path.join(self.work, "app")
             self.run([CLI, "pkg-extract", src, "--output", dst, "--temp", tmp], parse_fpkg)
@@ -1258,7 +1291,7 @@ class Job:
         if rc != 0 or "eboot.bin: no" in out or "sce_sys: no" in out:
             raise JobError("inspect: Quelle ungültig (sce_sys oder eboot.bin fehlt?) – siehe Log")
 
-        self.build_src, self.fix_files, self.tmp = build_src, fix_files, tmp
+        self.build_src, self.fix_files, self.tmp, self.reference_pkg = build_src, fix_files, tmp, reference_pkg
         self.reserve = int((self.src_bytes or 0) * 0.6)
         if p.get("confirm"):
             self.set_step("Freigabe")
@@ -1276,13 +1309,18 @@ class Job:
 
     def build(self):
         p = self.params
+        mode = p.get("mode", "full")
         build_src, fix_files, tmp = self.build_src, self.fix_files, self.tmp
         self.phase = "build"
-        self.set_step("FPKG bauen")
+        self.set_step("Backport bauen" if mode == "backport" else "FPKG bauen")
         stage = os.path.join(p["out"], ".building-" + self.id)
         os.makedirs(stage, exist_ok=True)
-        cmd = [CLI, "build", "--source", build_src, "--output", stage, "--temp", tmp,
-               "--no-sony-sdk", "--no-sleep-guard", "--preset", p.get("preset") or "standard"]
+        cmd = [CLI, "build", "--source", build_src, "--output", stage, "--temp", tmp, "--no-sleep-guard",
+               "--preset", p.get("preset") or "standard"]
+        if mode == "backport":
+            cmd += ["--sdk-reference", self.reference_pkg]
+        else:
+            cmd.append("--no-sony-sdk")
         if p.get("keep_ampr"):
             cmd.append("--keep-ampr")
         if p.get("keep_dump"):
@@ -1308,7 +1346,7 @@ class Job:
 
         self.set_step("Paket prüfen")
         rc, info = self.capture([CLI, "pkg-info", final])
-        res = {"pkg": final, "size": os.path.getsize(final)}
+        res = {"pkg": final, "size": os.path.getsize(final), "mode": mode}
         for key, rx in (("content_id", r"Content ID:\s*(\S+)"), ("version", r"contentVersion:\s*(\S+)"),
                         ("fw", r"Required system software:\s*(\S+)"), ("title", r"Title:\s*(.+)")):
             m = re.search(rx, info)
@@ -1826,6 +1864,8 @@ def selftest():
     rc, z = cmd_out([SEVENZ, "i"], 15)
     checks.append({"name": "7-Zip vorhanden (inkl. RAR)", "ok": rc == 0 and " Rar5 " in z,
                    "detail": next((ln for ln in z.splitlines() if "7-Zip" in ln), "")})
+    wine = shutil.which("wine64") or shutil.which("wine")
+    checks.append({"name": "Wine für Sony-SDK/Backport vorhanden", "ok": bool(wine), "detail": wine or "wine64/wine fehlt"})
     rs = roots()
     checks.append({"name": "Freigegebene Ordner gefunden", "ok": bool(rs), "detail": ", ".join(rs) or ROOTS_SPEC})
     for r in rs:
@@ -2052,9 +2092,12 @@ class H(BaseHTTPRequestHandler):
         try:
             if u.path == "/api/jobs":
                 b = self.body()
+                mode = b.get("mode") if b.get("mode") in ("full", "backport") else "full"
                 params = {
+                    "mode": mode,
                     "source": safe_path((b.get("source") or "").strip()),
                     "fix": safe_path(b["fix"].strip()) if (b.get("fix") or "").strip() else None,
+                    "reference_pkg": safe_path(b["reference_pkg"].strip()) if (b.get("reference_pkg") or "").strip() else None,
                     "out": safe_path((b.get("out") or "").strip() or DEF_OUT, must_exist=False),
                     "work": safe_path((b.get("work") or "").strip() or DEF_WORK, must_exist=False),
                     "preset": b.get("preset") if b.get("preset") in ("fast", "standard", "smallest") else "standard",
@@ -2068,6 +2111,11 @@ class H(BaseHTTPRequestHandler):
                     "password": (b.get("password") or "")[:500],
                     "origin": "manual",
                 }
+                if params["mode"] == "backport":
+                    if params["fix"]:
+                        raise JobError("Im Modus 'Backport-PKG' ist das Feld 'Fix' deaktiviert. Backport-Dateien als Quelle wählen.")
+                    if not params["reference_pkg"]:
+                        raise JobError("Base / Referenz-PKG fehlt.")
                 if params["delete_archive"] and classify(params["source"])[0] != "archive":
                     params["delete_archive"] = False
                 return self.send(200, enqueue(params).public())

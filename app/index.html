@@ -139,6 +139,13 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 <main>
   <section class="card">
     <h2>Neuer Auftrag</h2>
+    <label class="f" for="mode">Auftragsart</label>
+    <select id="mode">
+      <option value="full">FPKG erstellen / Fix einbauen</option>
+      <option value="backport">Separate Backport-PKG erstellen</option>
+    </select>
+    <div class="hint" id="mode-hint">Quelle ist das Spiel; Fix/Backport wird optional in die Full-FPKG eingebaut.</div>
+
     <label class="f" for="src">Quelle</label>
     <div class="row"><input id="src" type="text" placeholder="Datei oder Ordner wählen"><button data-pick="src" title="Durchsuchen">…</button></div>
     <div class="hint" id="src-hint">7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)</div>
@@ -150,6 +157,12 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <div class="row"><input id="fix" type="text" placeholder="leer = ohne Fix"><button data-pick="fix" title="Durchsuchen">…</button><button id="fix-clear" title="Fix entfernen">✕</button></div>
     <div class="hint" id="fix-hint">Archiv oder Ordner; Dateien ersetzen gleichnamige im App-Ordner</div>
     <div id="fix-sug" class="sug"></div>
+
+    <div id="ref-wrap" style="display:none">
+      <label class="f" for="reference_pkg">Base / Referenz-PKG</label>
+      <div class="row"><input id="reference_pkg" type="text" placeholder="Base .pkg oder Archiv/Ordner mit .pkg wählen"><button data-pick="reference_pkg" title="Durchsuchen">…</button></div>
+      <div class="hint" id="reference_pkg-hint">Die Base wird nur als Referenz für die separate Backport-PKG benutzt und nicht kopiert.</div>
+    </div>
 
     <label class="f" for="out">Ausgabeordner</label>
     <div class="row"><input id="out" type="text"><button data-pick="out" data-dir="1" title="Durchsuchen">…</button></div>
@@ -313,7 +326,7 @@ const ACTIVE = ['queued','running','waiting','ready'];
 let CFG = {}, sel = null, logOff = -1, logFor = null, srcKind = null;
 
 // ---------- form persistence (per browser)
-const FIELDS = ['src','fix','out','work','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'];
+const FIELDS = ['mode','src','fix','reference_pkg','out','work','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'];
 // _def_out/_def_work remember the server defaults at save time: a saved value that was just the old default
 // follows a changed DEFAULT_OUT/DEFAULT_WORK instead of sticking (forms saved before 1.2.2: /output, /work).
 const DEF_KEYS = {out:'_def_out', work:'_def_work'}, OLD_DEF = {out:'/output', work:'/work'};
@@ -323,6 +336,31 @@ function loadForm(){ try{ const o=JSON.parse(localStorage.getItem('fpkg-form')||
     if(k in DEF_KEYS && o[k]===(o[DEF_KEYS[k]] ?? OLD_DEF[k])) return;  // was the default -> keep current server default
     const e=$('#'+k); if(e.type==='checkbox') e.checked=o[k]; else e.value=o[k]; }); }catch(e){} }
 
+function modeIsBackport(){ return $('#mode').value === 'backport'; }
+function updMode(){
+  const bp = modeIsBackport();
+  $('#mode-hint').textContent = bp
+    ? 'Quelle ist der Backport-Ordner oder das Backport-Archiv; dazu eine Base / Referenz-PKG wählen.'
+    : 'Quelle ist das Spiel; Fix/Backport wird optional in die Full-FPKG eingebaut.';
+  $('#src-hint').textContent = bp
+    ? 'Backport-Dateien als Ordner oder Archiv wählen (z. B. eboot.bin + sce_sys/param.json).'
+    : '7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)';
+  $('#ref-wrap').style.display = bp ? '' : 'none';
+  $('#fix').disabled = bp;
+  document.querySelector('[data-pick="fix"]').disabled = bp;
+  $('#fix-clear').disabled = bp;
+  if (bp) {
+    $('#fix').value = '';
+    $('#fix-hint').className = 'hint';
+    $('#fix-hint').textContent = 'im Backport-Modus deaktiviert: die Quelle ist bereits der Backport';
+    $('#fix-sug').innerHTML = '';
+  } else if (!$('#fix').value.trim()) {
+    $('#fix-hint').className = 'hint';
+    $('#fix-hint').textContent = 'Archiv oder Ordner; Dateien ersetzen gleichnamige im App-Ordner';
+  }
+  $('#start').textContent = bp ? 'Backport-PKG erstellen' : 'FPKG erstellen';
+}
+
 // ---------- probes
 let probeT = {};
 function probeLater(id){ clearTimeout(probeT[id]); probeT[id] = setTimeout(()=>probe(id), 400); }
@@ -330,6 +368,7 @@ function updDel(){ const on = srcKind==='archive'; $('#lbl-del').classList.toggl
 async function probe(id){
   const v = $('#'+id).value.trim(), h = $('#'+id+'-hint');
   if (id==='src') { srcKind=null; updDel(); $('#fix-sug').innerHTML=''; }
+  if (id==='reference_pkg' && !v){ h.className='hint'; h.textContent='Base .pkg oder Archiv/Ordner mit .pkg wählen'; return; }
   if (id==='fix' && !v){ h.className='hint'; h.textContent='ohne Fix'; return; }
   if (!v){ h.className='hint'; h.textContent=''; return; }
   h.className='hint'; h.textContent='prüfe …';
@@ -342,10 +381,10 @@ async function probe(id){
     if (r.param) t += ' · '+r.param;
     if (r.note) t += ' · '+r.note;
     if (r.encrypted) t += ' · 🔒 passwortgeschützt';
-    if (id==='src' || id==='fix') { if (r.encrypted) $('#pw-wrap').style.display=''; }
+    if (id==='src' || id==='fix' || id==='reference_pkg') { if (r.encrypted) $('#pw-wrap').style.display=''; }
     if (r.path !== v && id==='src') t += ' · verwendet: '+r.path.split('/').slice(-2).join('/');
     h.className='hint ok'; h.textContent=t;
-    if (id==='src'){ srcKind=r.kind; updDel(); fixSuggest(r); }
+    if (id==='src'){ srcKind=r.kind; updDel(); if(!modeIsBackport()) fixSuggest(r); }
   }catch(e){
     if (id==='fix'){ h.className='hint'; h.textContent='Fix-Ordner (Inhalt wird beim Lauf geprüft)'; return; }
     h.className='hint err'; h.textContent=e.message;
@@ -402,23 +441,25 @@ async function fbLoad(p){
     L.appendChild(d);
   });
 }
-function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); if(fbTarget==='pk-dir') return loadPkgs(); if(fbTarget.startsWith('s-')) return; saveForm(); if(fbTarget==='src'||fbTarget==='fix') probe(fbTarget); else freeHint(fbTarget); }
+function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); if(fbTarget==='pk-dir') return loadPkgs(); if(fbTarget.startsWith('s-')) return; saveForm(); if(fbTarget==='src'||fbTarget==='fix'||fbTarget==='reference_pkg') probe(fbTarget); else freeHint(fbTarget); }
 $('#fb-here').onclick = () => fbPath && choose(fbPath);
 $('#fb-home').onclick = () => fbLoad('');
 $('#fb-cancel').onclick = () => $('#fb').close();
 document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => fbOpen(b.dataset.pick, !!b.dataset.dir));
 $('#fix-clear').onclick = () => { $('#fix').value=''; saveForm(); probe('fix'); };
-['src','fix'].forEach(id => $('#'+id).addEventListener('input', ()=>{ saveForm(); probeLater(id); }));
+['src','fix','reference_pkg'].forEach(id => $('#'+id).addEventListener('input', ()=>{ saveForm(); probeLater(id); }));
 ['out','work'].forEach(id => $('#'+id).addEventListener('change', ()=>{ saveForm(); freeHint(id); }));
 ['preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'].forEach(id => $('#'+id).addEventListener('change', saveForm));
+$('#mode').addEventListener('change', ()=>{ updMode(); saveForm(); probe('src'); });
 
 // ---------- start
 $('#start').onclick = async () => {
   $('#start-err').textContent='';
-  const b = {source:$('#src').value.trim(), fix:$('#fix').value.trim(), out:$('#out').value.trim(), work:$('#work').value.trim(),
+  const b = {mode:$('#mode').value, source:$('#src').value.trim(), fix:$('#fix').value.trim(), reference_pkg:$('#reference_pkg').value.trim(), out:$('#out').value.trim(), work:$('#work').value.trim(),
              preset:$('#preset').value, confirm:$('#confirm').checked, cleanup:$('#cleanup').checked,
              keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked, checksum:$('#checksum').checked, full_verify:$('#full_verify').checked, password:$('#password').value};
   if (!b.source){ $('#start-err').textContent='Quelle fehlt'; return; }
+  if (b.mode==='backport' && !b.reference_pkg){ $('#start-err').textContent='Base / Referenz-PKG fehlt'; return; }
   if (b.delete_archive && !confirm('Das Quellarchiv wird nach erfolgreichem Entpacken GELÖSCHT. Fortfahren?')) return;
   $('#start').disabled=true;
   try{ const j = await post('/api/jobs', b); showTab('jobs'); select(j.id); await refresh(); }
@@ -444,7 +485,11 @@ function ask(title, bullets, yes, no='Zurück'){
 
 // ---------- jobs
 let JOBLIST=[], curJob=null;
-function title(j){ const s=j.params.source.split('/').pop(); return j.params.fix ? s+'  +  '+j.params.fix.split('/').pop() : s; }
+function title(j){
+  const s=j.params.source.split('/').pop();
+  if (j.params.mode === 'backport') return 'Backport: '+s+'  gegen  '+(j.params.reference_pkg||'Base').split('/').pop();
+  return j.params.fix ? s+'  +  '+j.params.fix.split('/').pop() : s;
+}
 function overall(j){ if(!j.plan||!j.plan.length) return null; const n=j.plan.length; const d=j.plan.filter(x=>x.state==='done').length; const a=j.plan.findIndex(x=>x.state==='active'); const pct=(j.prog&&j.prog.pct!=null)?j.prog.pct/100:0; return Math.min(100,((d+(a>=0?pct:0))/n)*100); }
 function jobRow(j){
   const d=document.createElement('div'); d.className='job'+(j.id===sel?' sel':'');
@@ -632,8 +677,8 @@ $('#w-scan').onclick = () => post('/api/watch/scan').then(()=>setTimeout(loadWat
   CFG = await api('/api/config');
   $('#ver').textContent = 'v'+CFG.version;
   $('#out').value = CFG.out; $('#work').value = CFG.work; $('#pk-dir').value = CFG.out;
-  loadForm(); updDel();
-  probe('src'); probe('fix'); freeHint('out'); freeHint('work');
+  loadForm(); updMode(); updDel();
+  probe('src'); probe('fix'); probe('reference_pkg'); freeHint('out'); freeHint('work');
   await refresh(); pollLog();
   setInterval(refresh, 3000); setInterval(pollLog, 1200); setInterval(()=>{ if(curTab==='set') loadWatch(); }, 5000); setInterval(()=>{ if(curTab==='pkgs') loadChecks(); }, 1500);
   try{ const s=await api('/api/settings'); if(!localStorage.getItem('fpkg-form')) $('#checksum').checked=!!s.checksum; }catch(e){}
