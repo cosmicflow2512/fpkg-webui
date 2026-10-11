@@ -143,6 +143,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <select id="mode">
       <option value="full">FPKG erstellen / Fix einbauen</option>
       <option value="backport">Separate Backport-PKG erstellen</option>
+      <option value="base">Base-PKG mit Sony SDK bauen</option>
     </select>
     <div class="hint" id="mode-hint">Quelle ist das Spiel; Fix/Backport wird optional in die Full-FPKG eingebaut.</div>
 
@@ -341,7 +342,9 @@ function updMode(){
   const bp = modeIsBackport();
   $('#mode-hint').textContent = bp
     ? 'Quelle ist der Backport-Ordner oder das Backport-Archiv; dazu eine Base / Referenz-PKG wählen.'
-    : 'Quelle ist das Spiel; Fix/Backport wird optional in die Full-FPKG eingebaut.';
+    : ($('#mode').value === 'base'
+      ? 'Quelle ist das komplette Spiel (Ordner oder Archiv). Baut eine Base-PKG mit dem Sony SDK, gegen die spätere Backports gebaut werden.'
+      : 'Quelle ist das Spiel; Fix/Backport wird optional in die Full-FPKG eingebaut.');
   $('#src-hint').textContent = bp
     ? 'Backport-Dateien als Ordner oder Archiv wählen (z. B. eboot.bin + sce_sys/param.json).'
     : '7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)';
@@ -358,7 +361,7 @@ function updMode(){
     $('#fix-hint').className = 'hint';
     $('#fix-hint').textContent = 'Archiv oder Ordner; Dateien ersetzen gleichnamige im App-Ordner';
   }
-  $('#start').textContent = bp ? 'Backport-PKG erstellen' : 'FPKG erstellen';
+  $('#start').textContent = bp ? 'Backport-PKG erstellen' : ($('#mode').value === 'base' ? 'Base-PKG erstellen' : 'FPKG erstellen');
 }
 
 // ---------- probes

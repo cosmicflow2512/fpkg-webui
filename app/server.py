@@ -1174,7 +1174,7 @@ class Job:
             plan.append("App-Ordner kopieren")
         if fix:
             plan += ["Fix übernehmen"]
-        build_label = "Backport bauen" if mode == "backport" else "FPKG bauen"
+        build_label = {"backport": "Backport bauen", "base": "Base bauen"}.get(mode, "FPKG bauen")
         plan += ["Quelle prüfen"] + (["Freigabe"] if p.get("confirm") else []) + [build_label, "Paket prüfen"]
         if p.get("cleanup"):
             plan.append("Aufräumen")
@@ -1334,7 +1334,7 @@ class Job:
         mode = p.get("mode", "full")
         build_src, fix_files, tmp = self.build_src, self.fix_files, self.tmp
         self.phase = "build"
-        self.set_step("Backport bauen" if mode == "backport" else "FPKG bauen")
+        self.set_step({"backport": "Backport bauen", "base": "Base bauen"}.get(mode, "FPKG bauen"))
         stage = os.path.join(p["out"], ".building-" + self.id)
         os.makedirs(stage, exist_ok=True)
         cmd = [CLI, "build", "--source", build_src, "--output", stage, "--temp", tmp, "--no-sleep-guard",
@@ -1344,7 +1344,8 @@ class Job:
             base = self.ensure_base_folder()
             if base:
                 cmd += ["--sdk-base-folder", base]
-        else:
+        elif mode != "base":
+            # Base-Modus: Sony SDK (Standard von fpkg-cli), damit später Backports dagegen gebaut werden können
             cmd.append("--no-sony-sdk")
         if p.get("keep_ampr"):
             cmd.append("--keep-ampr")
@@ -2117,7 +2118,7 @@ class H(BaseHTTPRequestHandler):
         try:
             if u.path == "/api/jobs":
                 b = self.body()
-                mode = b.get("mode") if b.get("mode") in ("full", "backport") else "full"
+                mode = b.get("mode") if b.get("mode") in ("full", "backport", "base") else "full"
                 params = {
                     "mode": mode,
                     "source": safe_path((b.get("source") or "").strip()),
