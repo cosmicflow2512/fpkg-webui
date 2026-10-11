@@ -9,10 +9,11 @@ LABEL org.opencontainers.image.title="fpkg-webui" \
       org.opencontainers.image.description="Web UI for building PS5 FPKGs with PSVIETHOA fpkg-cli (archives, exFAT images, fixes)" \
       org.opencontainers.image.source="https://github.com/cosmicflow2512/fpkg-webui"
 
-RUN apt-get update \
+RUN dpkg --add-architecture i386 \
+ && apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl xz-utils libicu72 libssl3 python3 procps \
-      wine wine64 fonts-wine winbind xvfb \
+      wine wine64 wine32:i386 fonts-wine winbind xvfb \
  && rm -rf /var/lib/apt/lists/*
 
 # PSVIETHOA fpkg-cli (CLI only, the desktop GUI is removed)
