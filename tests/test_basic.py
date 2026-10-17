@@ -333,6 +333,8 @@ def test_backport():
     old = bp.Ftp, bp.smp_game
     bp.Ftp = FakeFtp
     server.SETTINGS.update(ps5_host="10.0.0.5")
+    reach = server.ps5_reachable
+    server.ps5_reachable = lambda *a, **k: True
 
     def job(**kw):
         params = {"type": "backport", "source": src, "work": base, "out": base, "cleanup": True}
@@ -375,6 +377,41 @@ def test_backport():
     check("bp job: several variants need a choice", err is not None and "Varianten" in str(err))
     j, err = job(variant="Other")
     check("bp job: chosen variant uploaded", err is None and server.rel_files(tgt) == ["eboot.bin"])
+
+    # PS5 off -> job waits and is retried, gives up after ps5_retry_hours
+    server.ps5_reachable = lambda *a, **k: False
+    j = server.Job({"type": "backport", "source": src, "work": base, "out": base, "cleanup": True, "variant": "Other"})
+    server.JOBS[j.id] = j
+    server.ORDER.append(j.id)
+    j.tries, j.first_try = 1, time.time()
+    try:
+        j.run_backport()
+        check("bp retry: offline raises", False)
+    except server.PS5Offline as e:
+        check("bp retry: offline raises", True)
+        server.schedule_retry(j, e)
+    check("bp retry: status retry", j.status == "retry" and j.next_try > time.time() + 200)
+    check("bp retry: work dir removed", not os.path.exists(j.work))
+    j.first_try = time.time() - 25 * 3600
+    server.schedule_retry(j, server.PS5Offline("aus"))
+    check("bp retry: gives up after max hours", j.status == "failed" and "nicht erreichbar" in j.error)
+    server.ps5_reachable = lambda *a, **k: True
+    j2 = server.Job({"type": "backport", "source": src, "work": base, "out": base, "cleanup": True, "variant": "Other"})
+    old_ftp = bp.Ftp
+
+    class Dropping(FakeFtp):
+        def upload(self, *a, **k):
+            server.ps5_reachable = lambda *a, **k: False
+            raise ConnectionResetError("reset")
+    bp.Ftp = Dropping
+    try:
+        j2.run_backport()
+        check("bp retry: drop during upload -> offline", False)
+    except server.PS5Offline:
+        check("bp retry: drop during upload -> offline", True)
+    check("bp retry: temp upload removed or kept target", server.rel_files(tgt) == ["eboot.bin"])
+    bp.Ftp = old_ftp
+    server.ps5_reachable = reach
     bp.Ftp, bp.smp_game = old
 
 

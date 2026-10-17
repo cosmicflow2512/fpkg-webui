@@ -16,6 +16,7 @@ import posixpath
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -32,7 +33,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import backport as bp
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -78,6 +79,10 @@ class Cancelled(Exception):
 
 class JobError(Exception):
     pass
+
+
+class PS5Offline(Exception):
+    """PS5 not reachable (off, rest mode, payload not running) - the backport job is retried later."""
 
 
 # ---------------------------------------------------------------- roots / paths
@@ -352,6 +357,9 @@ DEFAULT_SETTINGS = {
     "ps5_api_port": 10101,
     "ps5_backport_dir": "/data/homebrew/backports",
     "ps5_backup_dir": "/data/backport-backups",
+    "ps5_retry": True,
+    "ps5_retry_minutes": 5,
+    "ps5_retry_hours": 24,
 }
 SETTINGS = dict(DEFAULT_SETTINGS)
 SECRET_KEYS = ("pushover_user", "pushover_token", "ps5_ftp_pass")
@@ -414,7 +422,12 @@ def update_settings(b):
         elif isinstance(default, bool):
             v = bool(v)
         elif isinstance(default, int):
-            v = max(1, min(65535, int(v))) if k.endswith("_port") else max(5, int(v))
+            if k.endswith("_port"):
+                v = max(1, min(65535, int(v)))
+            elif k.startswith("ps5_retry_"):
+                v = max(1, min(720, int(v)))
+            else:
+                v = max(5, int(v))
         else:
             v = str(v or "").strip()
         if k in ("watch_dir", "watch_fix_dir") and v:
@@ -523,12 +536,16 @@ def send_pushover(title, message, priority=0, url=None):
 
 
 def notify(event, job):
-    if not SETTINGS["pushover_enabled"] or not SETTINGS.get("notify_" + event):
+    if not SETTINGS["pushover_enabled"] or not SETTINGS.get("notify_" + ("waiting" if event == "ps5" else event)):
         return
     src = os.path.basename(job.params["source"].rstrip("/"))
     r = job.result or {}
     if job.params.get("type") == "backport":
-        if event == "done":
+        if event == "ps5":
+            title, prio = f"Backport wartet auf PS5: {job.params.get('title_id') or src}", -1
+            lines = [f"PS5 {SETTINGS['ps5_host']} nicht erreichbar – neuer Versuch alle {SETTINGS['ps5_retry_minutes']} min "
+                     f"für bis zu {SETTINGS['ps5_retry_hours']} h"]
+        elif event == "done":
             title, prio = f"Backport auf der PS5: {r.get('title_id', '')}", 0
             lines = [src, f"{r.get('files', '?')} Dateien · {human(r.get('size'))} → {r.get('target', '')}",
                      f"altes Backport gesichert: {r['backup']}" if r.get("backup") else ""]
@@ -918,7 +935,8 @@ def parse_7z(job, line):
 
 # ---------------------------------------------------------------- jobs
 PUBLIC = ("id", "created", "status", "step", "prog", "plan", "params", "result", "warnings", "error",
-          "finished", "started", "phase", "origin")
+          "finished", "started", "phase", "origin", "next_try", "tries", "first_try")
+ACTIVE = ("queued", "running", "waiting", "ready", "retry")
 
 
 class Job:
@@ -937,6 +955,9 @@ class Job:
         self.finished = None
         self.phase = "prep"
         self.origin = params.get("origin", "manual")
+        self.next_try = None
+        self.tries = 0
+        self.first_try = None
         self._init_runtime()
 
     def _init_runtime(self):
@@ -1474,6 +1495,10 @@ class Job:
                  f"version_prüfen={bool(p.get('check_version'))} variante={p.get('variant') or '-'}")
         if not host:
             raise JobError("PS5-Adresse fehlt – unter Einstellungen → PS5 / ShadowMountPlus eintragen")
+        if self.tries > 1:
+            self.log(f"Versuch {self.tries}")
+        if not ps5_reachable(host, SETTINGS["ps5_ftp_port"]):
+            raise PS5Offline(f"FTP {host}:{SETTINGS['ps5_ftp_port']} antwortet nicht")
         is_dir = os.path.isdir(src)
         self.set_plan(([] if is_dir else ["Backport entpacken"]) + ["Backport prüfen"]
                       + (["PS5 prüfen"] if checks else []) + ["Hochladen", "Aufräumen"])
@@ -1527,6 +1552,8 @@ class Job:
             try:
                 g = bp.smp_game(host, SETTINGS["ps5_api_port"], tid)
             except OSError as e:
+                if not ps5_reachable(host, SETTINGS["ps5_ftp_port"]):
+                    raise PS5Offline(f"PS5 während der Prüfung nicht mehr erreichbar: {e}")
                 raise JobError(f"ShadowMountPlus-API nicht erreichbar ({host}:{SETTINGS['ps5_api_port']}): {e} – "
                                "auf der PS5 muss api_bind_address=0.0.0.0 gesetzt sein, oder die Prüfung abwählen")
             if not g:
@@ -1567,6 +1594,8 @@ class Job:
                                   fmt_eta((size - done[0]) / spd if spd else None))
         try:
             ftp.makedirs(bdir)
+            if ftp.isdir(tmp):
+                ftp.rmtree(tmp)
             ftp.makedirs(tmp)
             made = {tmp}
             for f in rel:
@@ -1592,8 +1621,10 @@ class Job:
                 self.log(f"Vorhandenes Backport gesichert: {target} -> {backup}")
             ftp.rename(tmp, target)
             self.log(f"Installiert: {target}")
-        except BaseException:
+        except BaseException as e:
             ftp.close()
+            if isinstance(e, (OSError, EOFError, ftplib.Error)) and not ps5_reachable(host, SETTINGS["ps5_ftp_port"]):
+                raise PS5Offline(f"Verbindung während des Uploads verloren: {e}")
             try:
                 f2 = self._ftp()
                 if f2.isdir(tmp):
@@ -1620,6 +1651,8 @@ class Job:
             return bp.Ftp(SETTINGS["ps5_host"], SETTINGS["ps5_ftp_port"], SETTINGS["ps5_ftp_user"],
                           SETTINGS["ps5_ftp_pass"])
         except (OSError, EOFError, ftplib.all_errors) as e:
+            if not isinstance(e, ftplib.error_perm) and not ps5_reachable(SETTINGS["ps5_host"], SETTINGS["ps5_ftp_port"]):
+                raise PS5Offline(f"FTP-Verbindung fehlgeschlagen: {e}")
             raise JobError(f"FTP-Verbindung zur PS5 fehlgeschlagen ({SETTINGS['ps5_host']}:{SETTINGS['ps5_ftp_port']}): {e}")
 
     def cancel(self):
@@ -1669,7 +1702,16 @@ def load_jobs():
             j.plan = j.plan or []
             j.warnings = j.warnings or []
             j._init_runtime()
-            if j.status in ("queued", "running", "waiting", "ready"):
+            j.tries = j.tries or 0
+            if j.status in ACTIVE and is_bp(j):
+                # backport jobs survive a restart: the work dir is rebuilt on the next try
+                if j.status in ("running", "retry"):
+                    j.status, j.next_try, j.step = "retry", time.time() + 30, "wartet auf PS5 (nach Neustart)"
+                if j.params.get("password") == "••••":
+                    j.params["password"] = ""
+                    j.warnings.append("Archiv-Passwort des Auftrags ging beim Neustart verloren – es werden die "
+                                      "Passwörter aus den Einstellungen probiert")
+            elif j.status in ACTIVE:
                 j.status, j.error, j.step = "failed", "Container wurde neu gestartet", "Fehler"
             JOBS[j.id] = j
             ORDER.append(j.id)
@@ -1746,21 +1788,60 @@ def is_bp(j):
     return j.params.get("type") == "backport"
 
 
+def schedule_retry(j, exc):
+    shutil.rmtree(j.work, ignore_errors=True)
+    j.reserve = 0
+    for x in j.plan:
+        if x["state"] == "active":
+            x["state"] = "todo"
+    age_h = (time.time() - (j.first_try or time.time())) / 3600
+    if not SETTINGS["ps5_retry"] or age_h >= SETTINGS["ps5_retry_hours"]:
+        why = "automatische Wiederholung ist aus" if not SETTINGS["ps5_retry"] else \
+            f"seit {SETTINGS['ps5_retry_hours']} h nicht erreichbar, {j.tries} Versuche"
+        return finish(j, JobError(f"PS5 nicht erreichbar: {exc} ({why})"))
+    j.next_try = time.time() + SETTINGS["ps5_retry_minutes"] * 60
+    j.status, j.phase = "retry", "backport"
+    j.step = f"PS5 nicht erreichbar – nächster Versuch {time.strftime('%H:%M', time.localtime(j.next_try))}"
+    j.prog = {"pct": None, "phase": "", "detail": "", "eta": ""}
+    j.log(f"\n== {time.strftime('%H:%M:%S')} PS5 nicht erreichbar ({exc}) – Versuch {j.tries}, "
+          f"nächster um {time.strftime('%H:%M', time.localtime(j.next_try))}")
+    LOG.info("job %s: PS5 offline (%s), retry #%d at %s", j.id, exc, j.tries + 1,
+             time.strftime("%H:%M:%S", time.localtime(j.next_try)))
+    if j.tries == 1:
+        notify("ps5", j)
+    save_jobs()
+
+
+def ps5_reachable(host, port, timeout=5):
+    try:
+        socket.create_connection((host, int(port)), timeout).close()
+        return True
+    except OSError:
+        return False
+
+
 def backport_worker():
     """Backport -> PS5 uploads. Independent of the FPKG queue, one at a time."""
     while True:
         try:
             with QUEUE_CV:
                 while True:
-                    nxt = next((JOBS[i] for i in ORDER if JOBS[i].status == "queued" and is_bp(JOBS[i])), None)
+                    now = time.time()
+                    nxt = next((JOBS[i] for i in ORDER if is_bp(JOBS[i]) and (
+                        JOBS[i].status == "queued" or (JOBS[i].status == "retry" and (JOBS[i].next_try or 0) <= now))),
+                        None)
                     if nxt:
                         break
                     QUEUE_CV.wait(5)
-                nxt.status, nxt.phase = "running", "backport"
+                nxt.status, nxt.phase, nxt.error = "running", "backport", None
+                nxt.tries = (nxt.tries or 0) + 1
+                nxt.first_try = nxt.first_try or time.time()
             save_jobs()
             try:
                 nxt.run_backport()
                 finish(nxt)
+            except PS5Offline as e:
+                schedule_retry(nxt, e)
             except BaseException as e:  # noqa: B902
                 finish(nxt, e)
             with QUEUE_CV:
@@ -2397,10 +2478,16 @@ class H(BaseHTTPRequestHandler):
                 if params.get("password") == "••••":
                     params["password"] = ""
                 return self.send(200, enqueue(params).public())
+            m = re.match(r"^/api/jobs/([\w-]+)/try-now$", u.path)
+            if m and m.group(1) in JOBS and JOBS[m.group(1)].status == "retry":
+                JOBS[m.group(1)].next_try = 0
+                with QUEUE_CV:
+                    QUEUE_CV.notify_all()
+                return self.send(200, {"ok": True})
             m = re.match(r"^/api/jobs/([\w-]+)/(continue|cancel|cleanup|delete)$", u.path)
             if m and m.group(1) in JOBS:
                 j, act = JOBS[m.group(1)], m.group(2)
-                active = j.status in ("queued", "running", "waiting", "ready")
+                active = j.status in ACTIVE
                 if act == "continue" and j.status == "waiting":
                     j.status, j.step = "ready", "bereit zum Bauen"
                     j.log("== Freigegeben, wartet auf freien Build-Platz.")
@@ -2410,7 +2497,7 @@ class H(BaseHTTPRequestHandler):
                 elif act == "cancel" and active:
                     if j.status == "queued":
                         j.status, j.step, j.finished = "cancelled", "abgebrochen", time.time()
-                    elif j.status in ("waiting", "ready"):
+                    elif j.status in ("waiting", "ready", "retry"):
                         finish(j, Cancelled())
                     else:
                         threading.Thread(target=j.cancel, daemon=True).start()

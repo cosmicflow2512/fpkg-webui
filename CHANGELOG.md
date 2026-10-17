@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1 – 2026-10-17
+- Backport → PS5: Ist die PS5 nicht erreichbar (aus, Ruhemodus, FTP-Payload nicht geladen) oder bricht die Verbindung beim Upload ab, wartet der Auftrag im Status „wartet auf PS5“ und versucht es automatisch erneut – Standard alle 5 min, höchstens 24 h (Einstellungen → PS5 / ShadowMountPlus). Vor jedem Versuch nur ein kurzer TCP-Test auf den FTP-Port, entpackt wird erst, wenn die PS5 da ist
+- „Jetzt versuchen“ im Auftrag startet den nächsten Versuch sofort, „Abbrechen“ beendet das Warten
+- Wartende Backport-Aufträge überstehen einen Container-Neustart (ein Archiv-Passwort aus dem Auftrag nicht, dann gelten die Passwörter aus den Einstellungen)
+- Pushover einmal beim ersten Fehlversuch (Schalter „wartet auf Freigabe“), danach wie gewohnt bei fertig/Fehler
+
 ## 1.3.0 – 2026-10-17
 - Neuer Modus „Backport → PS5“ (Umschalter oben im Formular): Backport-Archiv (zip/rar/7z, auch mehrteilig/passwortgeschützt) oder Ordner wählen, die WebUI entpackt es und kopiert es per FTP nach `<Backport-Ordner>/<TITLE_ID>` auf der PS5 (Standard `/data/homebrew/backports`). ShadowMountPlus (ab 1.7beta2 auch für installierte PKGs) legt es beim Spielstart über das Spiel, das Paket selbst bleibt unverändert
 - Title-ID, Spielversion und Firmware-Ziel kommen aus dem Namen (z. B. `[DLPSGAME.COM]-FW_4xx_PPSA09663_…_04_000_000_backport_files.zip`), beide Felder sind editierbar. Die Backport-Wurzel (Ordner mit `eboot.bin`, `sce_module/`, `fakelib/`, `sce_sys/`) wird gesucht, Hüllordner und Readmes bleiben weg; enthält das Archiv mehrere Varianten, wird eine im Formular gewählt

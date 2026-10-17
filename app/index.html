@@ -61,7 +61,7 @@ details{margin-top:12px} summary{cursor:pointer;font-size:13px;color:var(--muted
 .sug button.all{background:none;border:none;padding:4px 0;color:var(--muted);text-decoration:underline;cursor:pointer}
 .chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;text-transform:uppercase;letter-spacing:.4px;border:1px solid currentColor}
 .c-queued{color:var(--muted)} .c-running{color:var(--run)} .c-waiting{color:var(--warn)}
-.c-done{color:var(--ok)} .c-failed{color:var(--err)} .c-cancelled{color:var(--muted)} .c-ready{color:var(--run)}
+.c-done{color:var(--ok)} .c-failed{color:var(--err)} .c-cancelled{color:var(--muted)} .c-ready{color:var(--run)} .c-retry{color:var(--warn)}
 .tag{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;background:var(--panel);border:1px solid var(--line);color:var(--muted);margin-left:6px;vertical-align:1px}
 .set h3{margin:18px 0 6px} .set h3:first-child{margin-top:0}
 .set .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px}
@@ -229,6 +229,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
         <div class="actions">
           <button class="go" id="b-continue" style="display:none">Bauen starten</button>
           <button id="b-check" style="display:none">Paket prüfen</button>
+          <button class="go" id="b-trynow" style="display:none" title="PS5 jetzt erneut versuchen statt zu warten">Jetzt versuchen</button>
           <button id="b-retry" style="display:none" title="Mit denselben Einstellungen neu einreihen">Neu starten</button>
           <button id="b-dl" title="Log als Datei herunterladen">Log ↓</button>
           <span class="sp"></span>
@@ -298,6 +299,11 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
         <div><label class="f">Backport-Ordner auf der PS5</label><input id="s-ps5_backport_dir" type="text"></div>
         <div><label class="f">Sicherungen alter Backports</label><input id="s-ps5_backup_dir" type="text"></div>
       </div>
+      <div class="opts"><label><input type="checkbox" id="s-ps5_retry"><span>Später erneut versuchen, wenn die PS5 nicht erreichbar ist<small>Auftrag wartet („wartet auf PS5“) und probiert es im Abstand unten erneut, bis die Höchstdauer erreicht ist; Pushover einmal beim ersten Fehlversuch (wie „wartet auf Freigabe“)</small></span></label></div>
+      <div class="grid">
+        <div><label class="f">Neuer Versuch alle (min)</label><input id="s-ps5_retry_minutes" type="text"></div>
+        <div><label class="f">Höchstens warten (h)</label><input id="s-ps5_retry_hours" type="text"></div>
+      </div>
       <div class="hint">Die API ist auf der PS5 standardmäßig nur lokal erreichbar: <span class="mono">api_bind_address=0.0.0.0</span> in <span class="mono">/data/shadowmount/config.ini</span> setzen (ShadowMountPlus-Weboberfläche: LAN-Zugriff erlauben). Sie hat keine Anmeldung.</div>
       <div class="row" style="margin-top:10px;flex-wrap:wrap"><button id="s-ps5test">Verbindung testen</button><span class="hint" id="s-ps5msg" style="align-self:center"></span></div>
       <div class="tres" id="s-ps5res"></div>
@@ -359,8 +365,8 @@ const human = n => { if (n == null) return ''; const u=['B','KB','MB','GB','TB']
 const dur = s => { s=Math.round(s||0); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60; return h? `${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}` : `${m}:${String(x).padStart(2,'0')}`; };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const KIND = {archive:'Archiv', folder:'App-Ordner', exfat:'exFAT-Image', ffpfsc:'ffpfsc-Image', ffpkg:'ffpkg-Image', pkg:'FPKG'};
-const STATUS = {queued:'Warteschlange', running:'läuft', waiting:'Freigabe', ready:'bereit', done:'fertig', failed:'Fehler', cancelled:'abgebrochen'};
-const ACTIVE = ['queued','running','waiting','ready'];
+const STATUS = {queued:'Warteschlange', running:'läuft', waiting:'Freigabe', ready:'bereit', retry:'wartet auf PS5', done:'fertig', failed:'Fehler', cancelled:'abgebrochen'};
+const ACTIVE = ['queued','running','waiting','ready','retry'];
 let CFG = {}, sel = null, logOff = -1, logFor = null, srcKind = null;
 
 // ---------- form persistence (per browser)
@@ -531,6 +537,7 @@ function renderJob(j){
   const act=ACTIVE.includes(j.status);
   $('#b-continue').style.display = j.status==='waiting'?'':'none';
   $('#b-check').style.display = (j.status==='done' && j.result && j.result.pkg)?'':'none';
+  $('#b-trynow').style.display = j.status==='retry'?'':'none';
   $('#b-retry').style.display = ['failed','cancelled'].includes(j.status)?'':'none';
   $('#m-cancel').style.display = act?'':'none';
   $('#m-cleanup').style.display = act?'none':'';
@@ -572,6 +579,7 @@ async function pollLog(){
 }
 function cancelBullets(j){
   const p=j.params, b=[];
+  if (isBp(j) && j.status==='retry') return ['Der Auftrag wartet auf die PS5 und wird nicht mehr versucht.', 'Auf der PS5 wurde noch nichts geändert, das Backport-Archiv bleibt erhalten.'];
   if (isBp(j)) return [j.status==='running' ? `Der laufende Schritt <b>${esc(j.step)}</b> wird gestoppt.` : 'Der Auftrag wird aus der Warteschlange genommen.',
     'Ein halb hochgeladenes Backport wird auf der PS5 wieder entfernt, ein vorhandenes bleibt unverändert.', 'Das Backport-Archiv bleibt erhalten.'];
   const archGone = p.delete_archive && (j.plan||[]).some(x=>x.label==='Quelle entpacken' && x.state==='done');
@@ -585,6 +593,7 @@ function cancelBullets(j){
   return b;
 }
 $('#b-continue').onclick = () => post(`/api/jobs/${sel}/continue`).then(pollLog);
+$('#b-trynow').onclick = () => post(`/api/jobs/${sel}/try-now`).then(pollLog);
 $('#b-dl').onclick = () => { location.href = `/api/jobs/${sel}/download`; };
 $('#b-retry').onclick = async () => { try{ const n = await post(`/api/jobs/${curJob.id}/retry`); select(n.id); }catch(e){ alert(e.message); } };
 $('#b-check').onclick = async () => { const pkg=curJob.result.pkg; showTab('pkgs'); try{ await post('/api/checks',{path:pkg, mode:'full'}); }catch(e){ alert(e.message); } loadPkgs(); };
@@ -667,7 +676,7 @@ $('#g-selftest').onclick = async () => {
 };
 
 // ---------- settings
-const SKEYS = ['archive_passwords','overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','watch_stable','watch_interval','watch_preset','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting','ps5_host','ps5_ftp_port','ps5_ftp_user','ps5_ftp_pass','ps5_api_port','ps5_backport_dir','ps5_backup_dir'];
+const SKEYS = ['archive_passwords','overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','watch_stable','watch_interval','watch_preset','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting','ps5_host','ps5_ftp_port','ps5_ftp_user','ps5_ftp_pass','ps5_api_port','ps5_backport_dir','ps5_backup_dir','ps5_retry','ps5_retry_minutes','ps5_retry_hours'];
 async function loadSettings(){
   try{ const s = await api('/api/settings'); const L=s.locked||[]; SKEYS.forEach(k=>{ const e=$('#s-'+k); if(!e) return; if(e.type==='checkbox') e.checked=!!s[k]; else e.value=s[k]??''; e.disabled=L.includes(k); if(L.includes(k)) e.title='aus dem Unraid-Template (Umgebungsvariable)'; }); $('#s-envhint').textContent = L.length ? 'Gesperrte Felder kommen aus dem Unraid-Template: '+L.map(k=>({pushover_user:'PUSHOVER_USER',pushover_token:'PUSHOVER_TOKEN',webui_url:'WEBUI_URL'})[k]).join(', ') : ''; }catch(e){ $('#s-msg').textContent=e.message; }
   loadWatch();

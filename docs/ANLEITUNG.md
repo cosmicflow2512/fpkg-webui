@@ -240,6 +240,12 @@ Hinweise, die der Auftrag ausgibt:
 - fakelib für den Titel in ShadowMountPlus deaktiviert (nur mit PS5-Prüfung sichtbar)
 - den Standalone-Payload BackPork nicht parallel zu den ShadowMountPlus-Backports laufen lassen (laut ShadowMountPlus-Release 1.7beta2)
 
+**PS5 aus?** Antwortet der FTP-Port nicht (vor dem Start per TCP-Test) oder reißt die Verbindung beim
+Upload ab und die PS5 ist danach nicht mehr erreichbar, geht der Auftrag auf „wartet auf PS5“ und wird
+alle *n* Minuten erneut versucht (Einstellungen: Abstand, Höchstdauer, Schalter). Falsches Passwort,
+fehlende Rechte o. ä. sind normale Fehler ohne Wiederholung. Ein abgerissener Upload hinterlässt nur den
+Temp-Ordner, der beim nächsten Versuch gelöscht wird.
+
 FTP-Port und Anmeldung hängen vom FTP-Payload auf der PS5 ab (Einstellungen → PS5 / ShadowMountPlus,
 Standard 2121, Benutzer leer = anonymous). „Verbindung testen“ prüft FTP und API.
 
@@ -504,6 +510,7 @@ Alle Antworten JSON, Fehler als `{"error": "…"}` mit HTTP 4xx/5xx.
 | POST | `/api/jobs/<id>/cleanup` | Arbeitsordner löschen |
 | POST | `/api/jobs/<id>/delete` | aus der Liste entfernen |
 | POST | `/api/jobs/<id>/retry` | neu einreihen |
+| POST | `/api/jobs/<id>/try-now` | Backport-Auftrag „wartet auf PS5“: sofort erneut versuchen |
 | POST | `/api/jobs/clear-history` | Verlauf leeren |
 | GET | `/api/packages?dir=` | Paketliste |
 | GET | `/api/packages/info?path=` | `pkg-info` eines Pakets |
