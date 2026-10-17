@@ -173,6 +173,16 @@ class Ftp:
             self.f.voidcmd("TYPE I")
         except ftplib.all_errors:
             pass
+        # ps5-payload-dev/ftpsrv converts SELF->ELF on the fly per connection (default on): SIZE/MLSD then report the
+        # decrypted size of eboot.bin/*.sprx. "SITE SELF" toggles it; other servers reject it, which is fine.
+        self.self_mode = None
+        try:
+            r = self.f.sendcmd("SITE SELF")
+            if "enabled" in r.lower():
+                r = self.f.sendcmd("SITE SELF")
+            self.self_mode = "disabled" if "disabled" in r.lower() else None
+        except ftplib.all_errors:
+            pass
 
     def close(self):
         try:
@@ -205,18 +215,35 @@ class Ftp:
                 self.f.mkd(cur)
 
     def listdir(self, path):
-        """-> [(name, is_dir)]"""
+        """-> [(name, is_dir)]. CWD first: ftpsrv's MLSD/LIST ignore the path argument and list the cwd,
+        and it has no OPTS/NLST."""
+        cur = self.f.pwd()
+        self.f.cwd(path)
         try:
-            return [(n, facts.get("type") == "dir") for n, facts in self.f.mlsd(path, facts=["type"])
-                    if n not in (".", "..") and facts.get("type") in ("dir", "file")]
-        except ftplib.all_errors:
-            pass
-        names = []
-        for n in self.f.nlst(path):
-            n = posixpath.basename(n.rstrip("/"))
-            if n not in (".", "..", ""):
-                names.append((n, self.isdir(posixpath.join(path, n))))
-        return names
+            lines = []
+            try:
+                self.f.retrlines("MLSD", lines.append)
+                out = []
+                for ln in lines:
+                    facts, _, name = ln.partition(" ")
+                    f = {k.lower(): v for k, _, v in (x.partition("=") for x in facts.split(";") if x)}
+                    if name and name not in (".", "..") and f.get("type") in ("dir", "file"):
+                        out.append((name, f["type"] == "dir"))
+                return out
+            except ftplib.error_perm:
+                lines = []
+                self.f.retrlines("LIST", lines.append)
+                out = []
+                for ln in lines:
+                    parts = ln.split(None, 8)
+                    if len(parts) == 9 and parts[8] not in (".", ".."):
+                        out.append((parts[8], ln.startswith("d")))
+                return out
+        finally:
+            try:
+                self.f.cwd(cur)
+            except ftplib.all_errors:
+                pass
 
     def rmtree(self, path):
         for n, d in self.listdir(path):
@@ -224,7 +251,7 @@ class Ftp:
             if d:
                 self.rmtree(p)
             else:
-                self.f.delete(p)
+                self.f.voidcmd("DELE " + p)  # ftpsrv answers 226, ftplib.delete() only accepts 250/200
         self.f.rmd(path)
 
     def rename(self, a, b):

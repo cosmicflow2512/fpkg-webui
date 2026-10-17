@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import backport as bp
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -1580,6 +1580,8 @@ class Job:
         target = posixpath.join(bdir, tid)
         tmp = posixpath.join(bdir, f".{tid}.upload-{self.id}")
         ftp = self._ftp()
+        if getattr(ftp, "self_mode", None) == "disabled":
+            self.log("FTP-Server wandelt SELF-Dateien um (ftpsrv) – für diese Verbindung abgeschaltet (SITE SELF)")
         done, t0, last = [0], time.time(), [0.0]
 
         def cb(chunk):

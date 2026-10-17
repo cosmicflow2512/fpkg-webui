@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.2 – 2026-10-17
+- Backport → PS5 mit ps5-payload-dev/ftpsrv: Der Server wandelt SELF-Dateien beim Lesen in ELF um (pro Verbindung, standardmäßig an) und meldet bei `SIZE` die entschlüsselte Größe – die Größenprüfung schlug deshalb bei `eboot.bin`, `*.sprx` und `*.prx` fehl, obwohl richtig hochgeladen wurde. Die WebUI schaltet das jetzt nach der Anmeldung mit `SITE SELF` ab
+- Ordner auflisten/löschen auf der PS5 repariert: ftpsrv kennt kein `OPTS`/`NLST`, `MLSD` listet immer den aktuellen Ordner und `DELE` antwortet mit 226 – halbe Uploads blieben deshalb liegen („502 Command not recognized“), der Verbindungstest zählte die falschen Ordner
+- Gegen einen aus dem ftpsrv-Quellcode gebauten Server getestet
+
 ## 1.3.1 – 2026-10-17
 - Backport → PS5: Ist die PS5 nicht erreichbar (aus, Ruhemodus, FTP-Payload nicht geladen) oder bricht die Verbindung beim Upload ab, wartet der Auftrag im Status „wartet auf PS5“ und versucht es automatisch erneut – Standard alle 5 min, höchstens 24 h (Einstellungen → PS5 / ShadowMountPlus). Vor jedem Versuch nur ein kurzer TCP-Test auf den FTP-Port, entpackt wird erst, wenn die PS5 da ist
 - „Jetzt versuchen“ im Auftrag startet den nächsten Versuch sofort, „Abbrechen“ beendet das Warten
