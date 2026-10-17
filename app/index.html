@@ -147,7 +147,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 <header><h1>FPKG Builder</h1><span class="sub">PSVIETHOA fpkg-cli · Unraid</span><span class="sub" id="ver" style="flex:0"></span></header>
 <main>
   <section class="card">
-    <div class="tabs" id="mode-tabs"><button class="on" data-mode="fpkg">FPKG bauen</button><button data-mode="bp">Backport → PS5</button></div>
+    <div class="tabs" id="mode-tabs"><button class="on" data-mode="fpkg">FPKG bauen</button><button data-mode="ex">Entpacken</button><button data-mode="bp">Backport → PS5</button></div>
     <div id="mode-fpkg">
     <label class="f" for="src">Quelle</label>
     <div class="row"><input id="src" type="text" placeholder="Datei oder Ordner wählen"><button data-pick="src" title="Durchsuchen">…</button></div>
@@ -164,6 +164,10 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <label class="f" for="out">Ausgabeordner</label>
     <div class="row"><input id="out" type="text"><button data-pick="out" data-dir="1" title="Durchsuchen">…</button></div>
     <div class="hint" id="out-hint"></div>
+
+    <label class="f" for="pkg_name">Paketname <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+    <div class="row"><input id="pkg_name" type="text" placeholder="leer = automatisch"><button id="pkg_name-fill" title="Vorschlag übernehmen und bearbeiten">✎</button><button id="pkg_name-clear" title="wieder automatisch">✕</button></div>
+    <div class="hint" id="pkg_name-hint"></div>
 
     <div class="opts">
       <label><input type="checkbox" id="confirm" checked><span>Vor dem Bauen anhalten<small>zeigt erkannte Version und Fix-Abgleich, Bauen erst nach Klick</small></span></label>
@@ -186,6 +190,27 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     </details>
     <button class="primary" id="start">FPKG erstellen</button>
     <div class="hint err" id="start-err"></div>
+    </div>
+
+    <div id="mode-ex" style="display:none">
+      <label class="f" for="ex-src">Quelle</label>
+      <div class="row"><input id="ex-src" type="text" placeholder="Archiv, .exfat oder .pkg wählen"><button data-pick="ex-src" title="Durchsuchen">…</button></div>
+      <div class="hint" id="ex-src-hint">7z / zip / rar (auch mehrteilig, verschachtelt, mit Passwort), .exfat oder FPKG (.pkg) → App-Ordner</div>
+      <div id="ex-pw-wrap" style="display:none"><label class="f" for="ex-pw">Archiv-Passwort</label>
+        <input id="ex-pw" type="password" autocomplete="off" placeholder="leer = Passwörter aus den Einstellungen probieren"></div>
+      <label class="f" for="ex-dest">Zielordner</label>
+      <div class="row"><input id="ex-dest" type="text"><button data-pick="ex-dest" data-dir="1" title="Durchsuchen">…</button></div>
+      <div class="hint" id="ex-dest-hint"></div>
+      <label class="f" for="ex-name">Ordnername <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+      <input id="ex-name" type="text" placeholder="leer = Title-ID, z. B. PPSA09663">
+      <div class="hint" id="ex-target"></div>
+      <div class="opts">
+        <label><input type="checkbox" id="ex-checksum" checked><span>Prüfsumme prüfen, wenn vorhanden</span></label>
+        <label id="lbl-ex-del"><input type="checkbox" id="ex-del"><span>Quellarchiv danach löschen<small>erst wenn der Ordner fertig am Ziel liegt; inkl. aller Teile</small></span></label>
+      </div>
+      <p class="hint">Entpackt wird direkt im Zielordner (Unterordner <span class="mono">job-…</span>), am Ende wird nur umbenannt. Der fertige Ordner ist eine gültige Quelle für „FPKG bauen“ und ein Ordner-Dump für ShadowMountPlus.</p>
+      <button class="primary" id="ex-start">Entpacken</button>
+      <div class="hint err" id="ex-err"></div>
     </div>
 
     <div id="mode-bp" style="display:none">
@@ -244,6 +269,8 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
           <div class="bar" id="d-bar"><i></i><span></span></div>
           <div class="pline"><span class="d" id="d-pdetail"></span><span id="d-eta"></span></div>
         </div>
+        <div id="d-name" style="display:none;margin-bottom:10px"><label class="f" id="d-name-lab" style="margin-top:0">Paketname</label>
+          <div class="row"><input id="d-name-in" type="text"><button id="d-name-save" title="Name für dieses Paket übernehmen (leer = automatisch)">Übernehmen</button></div></div>
         <div class="result" id="d-result"></div>
         <ul class="warns" id="d-warns"></ul>
         <pre class="log" id="d-log"></pre>
@@ -386,7 +413,7 @@ function probeLater(id){ clearTimeout(probeT[id]); probeT[id] = setTimeout(()=>p
 function updDel(){ const on = srcKind==='archive'; $('#lbl-del').classList.toggle('off', !on); $('#delete_archive').disabled = !on; if(!on) $('#delete_archive').checked=false; }
 async function probe(id){
   const v = $('#'+id).value.trim(), h = $('#'+id+'-hint');
-  if (id==='src') { srcKind=null; updDel(); $('#fix-sug').innerHTML=''; }
+  if (id==='src') { srcKind=null; srcInfo=null; updDel(); $('#fix-sug').innerHTML=''; nameHint(); }
   if (id==='fix' && !v){ h.className='hint'; h.textContent='ohne Fix'; return; }
   if (!v){ h.className='hint'; h.textContent=''; return; }
   h.className='hint'; h.textContent='prüfe …';
@@ -402,12 +429,27 @@ async function probe(id){
     if (id==='src' || id==='fix') { if (r.encrypted) $('#pw-wrap').style.display=''; }
     if (r.path !== v && id==='src') t += ' · verwendet: '+r.path.split('/').slice(-2).join('/');
     h.className='hint ok'; h.textContent=t;
-    if (id==='src'){ srcKind=r.kind; updDel(); fixSuggest(r); }
+    if (id==='src'){ srcKind=r.kind; updDel(); fixSuggest(r); srcInfo=r; nameHint(); }
   }catch(e){
     if (id==='fix'){ h.className='hint'; h.textContent='Fix-Ordner (Inhalt wird beim Lauf geprüft)'; return; }
     h.className='hint err'; h.textContent=e.message;
   }
 }
+// ---------- package name preview (fpkg-cli: <Content-ID>-A<vv>-V<vv>.pkg; with a fix -backport / -fix)
+let srcInfo = null;
+function fixSuffix(){ const f=$('#fix').value.trim(); if(!f) return ''; return f.split('/').pop().toLowerCase().includes('backport') ? '-backport' : '-fix'; }
+function autoName(){ if (srcInfo && srcInfo.pkg_name) return srcInfo.pkg_name.replace(/\.pkg$/,'')+fixSuffix()+'.pkg'; return null; }
+function nameHint(){
+  const h=$('#pkg_name-hint'), own=$('#pkg_name').value.trim(), a=autoName();
+  const later = '<Content-ID>-A…-V…'+fixSuffix()+'.pkg';
+  if (own){ h.className='hint'; h.innerHTML = `Paket heißt: <span class="mono">${esc(own.toLowerCase().endsWith('.pkg')?own:own+'.pkg')}</span>` + (a?` · automatisch wäre <span class="mono">${esc(a)}</span>`:''); return; }
+  h.className='hint'; h.innerHTML = a ? `Paket heißt voraussichtlich: <span class="mono">${esc(a)}</span>` : `Paket heißt: <span class="mono">${esc(later)}</span>${srcKind==='archive'?' – Content-ID und Version stehen nach dem Entpacken fest (mit „Vor dem Bauen anhalten“ siehst und änderst du ihn vor dem Bauen)':''}`;
+  h.innerHTML += ' · existiert der Name schon, wird -Datum-Uhrzeit angehängt';
+}
+$('#pkg_name').addEventListener('input', ()=>{ saveForm(); nameHint(); });
+$('#pkg_name-fill').onclick = () => { const a=autoName(); if(a){ $('#pkg_name').value=a; saveForm(); nameHint(); $('#pkg_name').focus(); } };
+$('#pkg_name-clear').onclick = () => { $('#pkg_name').value=''; saveForm(); nameHint(); };
+
 // Fixes/backports from the fix folder (Settings → Fix-Ordner): matching title ID first, else all of them
 function fixSuggest(r){
   const box = $('#fix-sug'); box.innerHTML='';
@@ -420,7 +462,7 @@ function fixSuggest(r){
   box.appendChild(lab);
   const add = f => { const b=document.createElement('button'); b.type='button'; if(f.match) b.className='match';
     b.textContent = f.name + (f.size!=null?' · '+human(f.size):''); b.title=f.path;
-    b.onclick = () => { $('#fix').value=f.path; saveForm(); probe('fix'); }; box.appendChild(b); };
+    b.onclick = () => { $('#fix').value=f.path; saveForm(); probe('fix'); nameHint(); }; box.appendChild(b); };
   (hit.length ? hit : fx.slice(0,8)).forEach(add);
   if (hit.length && fx.length>hit.length){ const m=document.createElement('button'); m.type='button'; m.className='all';
     m.textContent=`${fx.length-hit.length} weitere zeigen`; m.onclick=()=>{ m.remove(); fx.filter(f=>!f.match).forEach(add); }; box.appendChild(m); }
@@ -459,12 +501,13 @@ async function fbLoad(p){
     L.appendChild(d);
   });
 }
-function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); if(fbTarget==='pk-dir') return loadPkgs(); if(fbTarget.startsWith('s-')) return; if(fbTarget==='bp-src'){ bpSave(); return bpProbe(); } saveForm(); if(fbTarget==='src'||fbTarget==='fix') probe(fbTarget); else freeHint(fbTarget); }
+function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); if(fbTarget==='pk-dir') return loadPkgs(); if(fbTarget.startsWith('s-')) return; if(fbTarget==='bp-src'){ bpSave(); return bpProbe(); } if(fbTarget==='ex-src'||fbTarget==='ex-dest'){ exSave(); return fbTarget==='ex-src'?exProbe():exTarget(); } saveForm(); if(fbTarget==='src'||fbTarget==='fix'){ probe(fbTarget); if(fbTarget==='fix') nameHint(); } else freeHint(fbTarget); }
 $('#fb-here').onclick = () => fbPath && choose(fbPath);
 $('#fb-home').onclick = () => fbLoad('');
 $('#fb-cancel').onclick = () => $('#fb').close();
 document.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => fbOpen(b.dataset.pick, !!b.dataset.dir));
-$('#fix-clear').onclick = () => { $('#fix').value=''; saveForm(); probe('fix'); };
+$('#fix-clear').onclick = () => { $('#fix').value=''; saveForm(); probe('fix'); nameHint(); };
+$('#fix').addEventListener('input', nameHint);
 ['src','fix'].forEach(id => $('#'+id).addEventListener('input', ()=>{ saveForm(); probeLater(id); }));
 ['out','work'].forEach(id => $('#'+id).addEventListener('change', ()=>{ saveForm(); freeHint(id); }));
 ['preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'].forEach(id => $('#'+id).addEventListener('change', saveForm));
@@ -474,11 +517,11 @@ $('#start').onclick = async () => {
   $('#start-err').textContent='';
   const b = {source:$('#src').value.trim(), fix:$('#fix').value.trim(), out:$('#out').value.trim(), work:$('#work').value.trim(),
              preset:$('#preset').value, confirm:$('#confirm').checked, cleanup:$('#cleanup').checked,
-             keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked, checksum:$('#checksum').checked, full_verify:$('#full_verify').checked, password:$('#password').value};
+             keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked, checksum:$('#checksum').checked, full_verify:$('#full_verify').checked, password:$('#password').value, pkg_name:$('#pkg_name').value.trim()};
   if (!b.source){ $('#start-err').textContent='Quelle fehlt'; return; }
   if (b.delete_archive && !confirm('Das Quellarchiv wird nach erfolgreichem Entpacken GELÖSCHT. Fortfahren?')) return;
   $('#start').disabled=true;
-  try{ const j = await post('/api/jobs', b); showTab('jobs'); select(j.id); await refresh(); }
+  try{ const j = await post('/api/jobs', b); showTab('jobs'); select(j.id); await refresh(); $('#pkg_name').value=''; nameHint(); }
   catch(e){ $('#start-err').textContent=e.message; }
   finally{ $('#start').disabled=false; }
 };
@@ -502,7 +545,8 @@ function ask(title, bullets, yes, no='Zurück'){
 // ---------- jobs
 let JOBLIST=[], curJob=null;
 const isBp = j => j.params && j.params.type==='backport';
-function title(j){ const s=j.params.source.split('/').pop(); return isBp(j) ? (j.params.title_id||(j.result&&j.result.title_id)||'Backport')+' → PS5  ·  '+s : (j.params.fix ? s+'  +  '+j.params.fix.split('/').pop() : s); }
+const isEx = j => j.params && j.params.type==='extract';
+function title(j){ const s=j.params.source.split('/').pop(); if (isEx(j)) return 'Entpacken · '+s; return isBp(j) ? (j.params.title_id||(j.result&&j.result.title_id)||'Backport')+' → PS5  ·  '+s : (j.params.fix ? s+'  +  '+j.params.fix.split('/').pop() : s); }
 function overall(j){ if(!j.plan||!j.plan.length) return null; const n=j.plan.length; const d=j.plan.filter(x=>x.state==='done').length; const a=j.plan.findIndex(x=>x.state==='active'); const pct=(j.prog&&j.prog.pct!=null)?j.prog.pct/100:0; return Math.min(100,((d+(a>=0?pct:0))/n)*100); }
 function jobRow(j){
   const d=document.createElement('div'); d.className='job'+(j.id===sel?' sel':'');
@@ -555,7 +599,10 @@ function renderJob(j){
     $('#d-eta').textContent = pr.eta ? 'noch ~'+pr.eta : (j.started? 'läuft seit '+dur(Date.now()/1000-j.started):'');
   }
   const res=$('#d-result');
-  if (j.result && isBp(j)){
+  if (j.result && isEx(j)){
+    const x=j.result; res.style.display='block';
+    res.innerHTML = `Ordner: <b>${esc(x.folder)}</b><br>${esc(x.title_id||'?')} · ${esc(x.content_id||'')} · Version ${esc(x.version||'?')} · ${human(x.size)}${x.duration?' · Dauer '+dur(x.duration):''}`;
+  } else if (j.result && isBp(j)){
     const x=j.result; res.style.display='block';
     res.innerHTML = `Installiert: <b>${esc(x.host)}:${esc(x.target)}</b><br>${esc(x.title_id)} · ${x.files} Dateien · ${human(x.size)}${x.fw?' · FW-Ziel '+esc(x.fw):''}${x.version?' · für Version '+esc(x.version):''}${x.duration?' · Dauer '+dur(x.duration):''}`
       + (x.backup ? `<br>altes Backport gesichert: <b>${esc(x.backup)}</b>` : '<br>es gab vorher kein Backport für diese Title-ID');
@@ -564,6 +611,13 @@ function renderJob(j){
     res.innerHTML = `Paket: <b>${esc(x.pkg)}</b><br>${esc(x.title||'')} · ${esc(x.content_id||'')} · Version ${esc(x.version||'?')} · Firmware ${esc(x.fw||'?')} · ${human(x.size)} · ${x.verify_mode==='full'?'Vollprüfung':'Schnellprüfung'} ${x.verify?'<span class="okc">OK</span>':'<span class="bad">FEHLER</span>'}${x.duration?' · Dauer '+dur(x.duration):''}`
       + (x.fix_missing && x.fix_missing.length ? `<br><span style="color:var(--warn)">nicht im Paket: ${esc(x.fix_missing.join(', '))}</span>` : (x.fix_missing ? '<br><span style="color:var(--ok)">alle Fix-Dateien im Paket</span>' : ''));
   } else res.style.display='none';
+  const nm=$('#d-name'), editable = !j.params.type && ['queued','waiting','ready'].includes(j.status);
+  if (!j.params.type && (j.pkg_name || editable) && !(j.result && j.result.pkg)){
+    nm.style.display='';
+    if (document.activeElement!==$('#d-name-in')) $('#d-name-in').value = j.pkg_name || '';
+    $('#d-name-in').disabled = !editable; $('#d-name-save').style.display = editable?'':'none';
+    $('#d-name-lab').textContent = j.params.pkg_name ? 'Paketname (eigener)' : 'Paketname (voraussichtlich)';
+  } else nm.style.display='none';
   $('#d-warns').innerHTML = (j.warnings||[]).map(w=>`<li>${esc(w)}</li>`).join('');
 }
 async function pollLog(){
@@ -593,6 +647,7 @@ function cancelBullets(j){
   return b;
 }
 $('#b-continue').onclick = () => post(`/api/jobs/${sel}/continue`).then(pollLog);
+$('#d-name-save').onclick = async () => { try{ await post(`/api/jobs/${sel}/name`, {name:$('#d-name-in').value}); $('#d-name-in').blur(); pollLog(); }catch(e){ alert(e.message); } };
 $('#b-trynow').onclick = () => post(`/api/jobs/${sel}/try-now`).then(pollLog);
 $('#b-dl').onclick = () => { location.href = `/api/jobs/${sel}/download`; };
 $('#b-retry').onclick = async () => { try{ const n = await post(`/api/jobs/${curJob.id}/retry`); select(n.id); }catch(e){ alert(e.message); } };
@@ -700,9 +755,45 @@ $('#s-ps5test').onclick = async () => { const m=$('#s-ps5msg'), r=$('#s-ps5res')
   }catch(e){ m.className='hint err'; m.textContent=e.message; } };
 $('#w-scan').onclick = () => post('/api/watch/scan').then(()=>setTimeout(loadWatch,1500));
 
+// ---------- extract only
+let exInfo = null, exT = null;
+function exSave(){ try{ localStorage.setItem('fpkg-ex', JSON.stringify({src:$('#ex-src').value, dest:$('#ex-dest').value, checksum:$('#ex-checksum').checked})); }catch(e){} }
+function exLoad(){ try{ const o=JSON.parse(localStorage.getItem('fpkg-ex')||'{}'); if(o.src) $('#ex-src').value=o.src; if(o.dest) $('#ex-dest').value=o.dest; if('checksum' in o) $('#ex-checksum').checked=o.checksum; }catch(e){} }
+function exTarget(){ const d=($('#ex-dest').value.trim()||CFG.extract||'').replace(/\/$/,''), n=$('#ex-name').value.trim()||(exInfo&&exInfo.title_id)||'<TITLE_ID>';
+  $('#ex-target').innerHTML = `Ergebnis: <span class="mono">${esc(d)}/${esc(n)}</span>`; freeHintEx(); }
+async function freeHintEx(){ const v=$('#ex-dest').value.trim(); if(!v) return; try{ const r=await api('/api/free?path='+encodeURIComponent(v)); $('#ex-dest-hint').className='hint'; $('#ex-dest-hint').textContent = r.free!=null ? 'frei: '+human(r.free)+' von '+human(r.total) : ''; }catch(e){ $('#ex-dest-hint').className='hint err'; $('#ex-dest-hint').textContent=e.message; } }
+async function exProbe(){
+  const v=$('#ex-src').value.trim(), h=$('#ex-src-hint'); exInfo=null;
+  const on=false; $('#ex-del').disabled=true; $('#lbl-ex-del').classList.add('off'); $('#ex-del').checked=false;
+  if (!v){ h.className='hint'; h.textContent=''; exTarget(); return; }
+  h.className='hint'; h.textContent='prüfe …';
+  try{ const r=await api('/api/probe?path='+encodeURIComponent(v)); exInfo=r;
+    let t=(KIND[r.kind]||r.kind); if (r.volumes>1) t+=` (${r.volumes} Teile)`; if (r.size!=null) t+=' · '+human(r.size); if (r.title_id) t+=' · '+r.title_id; if (r.encrypted){ t+=' · 🔒 passwortgeschützt'; $('#ex-pw-wrap').style.display=''; }
+    if (r.kind==='folder'){ h.className='hint warn'; h.textContent=t+' – ist schon entpackt'; }
+    else if (r.kind==='ffpkg'||r.kind==='ffpfsc'){ h.className='hint warn'; h.textContent=t+' – lässt sich nicht entpacken'; }
+    else { h.className='hint ok'; h.textContent=t; }
+    if (r.kind==='archive'){ $('#ex-del').disabled=false; $('#lbl-ex-del').classList.remove('off'); }
+  }catch(e){ h.className='hint err'; h.textContent=e.message; }
+  exTarget();
+}
+$('#ex-src').addEventListener('input', ()=>{ exSave(); clearTimeout(exT); exT=setTimeout(exProbe, 400); });
+$('#ex-dest').addEventListener('change', ()=>{ exSave(); exTarget(); });
+$('#ex-name').addEventListener('input', exTarget);
+$('#ex-checksum').addEventListener('change', exSave);
+$('#ex-start').onclick = async () => {
+  $('#ex-err').textContent='';
+  const b={source:$('#ex-src').value.trim(), dest:$('#ex-dest').value.trim(), name:$('#ex-name').value.trim(), checksum:$('#ex-checksum').checked, delete_archive:$('#ex-del').checked, password:$('#ex-pw').value};
+  if (!b.source){ $('#ex-err').textContent='Quelle fehlt'; return; }
+  if (b.delete_archive && !confirm('Das Quellarchiv wird nach erfolgreichem Entpacken GELÖSCHT. Fortfahren?')) return;
+  $('#ex-start').disabled=true;
+  try{ const j=await post('/api/extract', b); showTab('jobs'); select(j.id); await refresh(); $('#ex-name').value=''; }
+  catch(e){ $('#ex-err').textContent=e.message; }
+  finally{ $('#ex-start').disabled=false; }
+};
+
 // ---------- backport -> PS5
 let BPS = {}, bpInfo = null, bpT = null;
-function showMode(m){ document.querySelectorAll('#mode-tabs button').forEach(b=>b.classList.toggle('on', b.dataset.mode===m)); $('#mode-fpkg').style.display=m==='fpkg'?'':'none'; $('#mode-bp').style.display=m==='bp'?'':'none'; try{ localStorage.setItem('fpkg-mode', m); }catch(e){} if(m==='bp'){ bpSettings(); bpList(); } }
+function showMode(m){ document.querySelectorAll('#mode-tabs button').forEach(b=>b.classList.toggle('on', b.dataset.mode===m)); ['fpkg','ex','bp'].forEach(x=>$('#mode-'+x).style.display=m===x?'':'none'); if(m==='ex') exTarget(); try{ localStorage.setItem('fpkg-mode', m); }catch(e){} if(m==='bp'){ bpSettings(); bpList(); } }
 document.querySelectorAll('#mode-tabs button').forEach(b => b.onclick = () => showMode(b.dataset.mode));
 function bpSave(){ try{ localStorage.setItem('fpkg-bp', JSON.stringify({src:$('#bp-src').value, ci:$('#bp-ci').checked, cv:$('#bp-cv').checked})); }catch(e){} }
 function bpLoad(){ try{ const o=JSON.parse(localStorage.getItem('fpkg-bp')||'{}'); if(o.src) $('#bp-src').value=o.src; $('#bp-ci').checked=!!o.ci; $('#bp-cv').checked=!!o.cv; }catch(e){} }
@@ -762,8 +853,9 @@ $('#bp-start').onclick = async () => {
   CFG = await api('/api/config');
   $('#ver').textContent = 'v'+CFG.version;
   $('#out').value = CFG.out; $('#work').value = CFG.work; $('#pk-dir').value = CFG.out;
-  loadForm(); updDel(); bpLoad();
-  try{ if(localStorage.getItem('fpkg-mode')==='bp'){ showMode('bp'); bpProbe(); } }catch(e){}
+  $('#ex-dest').value = CFG.extract;
+  loadForm(); updDel(); bpLoad(); exLoad(); nameHint();
+  try{ const md=localStorage.getItem('fpkg-mode'); if(md==='bp'){ showMode('bp'); bpProbe(); } else if(md==='ex'){ showMode('ex'); exProbe(); } }catch(e){}
   probe('src'); probe('fix'); freeHint('out'); freeHint('work');
   await refresh(); pollLog();
   setInterval(refresh, 3000); setInterval(pollLog, 1200); setInterval(()=>{ if(curTab==='set') loadWatch(); }, 5000); setInterval(()=>{ if(curTab==='pkgs') loadChecks(); }, 1500);

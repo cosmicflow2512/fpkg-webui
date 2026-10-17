@@ -435,7 +435,15 @@ def test_pkg_names():
     open(os.path.join(out, r), "w").close()
     r2 = server.unique_pkg_name(out, n)
     check("pkgname: second collision numbered", r2 not in (n, r) and r2.endswith("-2.pkg"))
+    check("pkgname: custom name, no fix suffix", server.unique_pkg_name(out, "Test DD2.pkg", "/x/backport.zip", custom=True)
+          == "Test DD2.pkg")
     server.roots = old
+    check("pkgname: predict", server.predict_pkg_name("UP0102-PPSA09663_00-DD2GAME000000000", "04.000.000")
+          == "UP0102-PPSA09663_00-DD2GAME000000000-A0400-V0400.pkg")
+    check("pkgname: predict with fix", server.predict_pkg_name("C", "01.050.000", "/x/PPSA1 fix.7z") == "C-A0105-V0105-fix.pkg")
+    check("pkgname: predict unknown", server.predict_pkg_name(None, "1.0") is None)
+    check("clean_name: path chars", server.clean_name("../a/b:c?.pkg", ".pkg") == "_a_b_c_.pkg")
+    check("clean_name: empty", server.clean_name("  ", ".pkg") == "")
 
 
 if __name__ == "__main__":

@@ -502,7 +502,7 @@ Alle Antworten JSON, Fehler als `{"error": "…"}` mit HTTP 4xx/5xx.
 | GET | `/api/probe?path=&fixes=1` | Quelle erkennen: Art, Teile, Größe, Verschlüsselung, Title-ID, `param.json`, optional Fix-Vorschläge |
 | GET | `/api/free?path=` | freier und gesamter Platz |
 | GET | `/api/jobs` | alle Aufträge |
-| POST | `/api/jobs` | Auftrag anlegen (`source`, `fix`, `out`, `work`, `preset`, `confirm`, `cleanup`, `delete_archive`, `checksum`, `full_verify`, `keep_ampr`, `keep_dump`, `password`) |
+| POST | `/api/jobs` | Auftrag anlegen (`source`, `fix`, `out`, `work`, `preset`, `confirm`, `cleanup`, `delete_archive`, `checksum`, `full_verify`, `keep_ampr`, `keep_dump`, `password`, `pkg_name`) |
 | GET | `/api/jobs/<id>/log` | Log-Ausschnitt |
 | GET | `/api/jobs/<id>/download` | Log als Datei |
 | POST | `/api/jobs/<id>/continue` | Freigabe: bauen |
@@ -522,6 +522,8 @@ Alle Antworten JSON, Fehler als `{"error": "…"}` mit HTTP 4xx/5xx.
 | GET | `/api/watch` | Watch-Status und -Liste |
 | POST | `/api/watch/scan` | sofort scannen |
 | POST | `/api/watch/forget` | Eintrag erneut verarbeiten (`key`) |
+| POST | `/api/extract` | Nur entpacken (`source`, `dest`, `name`, `checksum`, `delete_archive`, `password`) |
+| POST | `/api/jobs/<id>/name` | Paketname vor dem Bauen ändern (`name`, leer = automatisch) |
 | POST | `/api/backport/probe` | Backport erkennen (`path`, `password`): Title-ID, Version, FW, Varianten mit Dateien |
 | GET | `/api/backport/list` | Einträge im Fix-Ordner als Backport-Vorschläge |
 | POST | `/api/backport` | Backport-Auftrag (`source`, `title_id`, `version`, `variant`, `check_installed`, `check_version`, `password`) |

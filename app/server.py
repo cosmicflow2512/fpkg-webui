@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import backport as bp
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.3.3"
+APP_VERSION = "1.4.0"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -42,6 +42,8 @@ SEVENZ = ENV("SEVENZ", "7z")
 ROOTS_SPEC = ENV("BROWSE_ROOTS", "/shares/*:/output:/work")
 DEF_OUT = ENV("DEFAULT_OUT", "/output")
 DEF_WORK = ENV("DEFAULT_WORK", "/work")
+# "Nur entpacken": default target next to the package folder (/output/ps5-fpkg/out -> /output/ps5-fpkg/dumps)
+DEF_EXTRACT = ENV("DEFAULT_EXTRACT") or os.path.join(os.path.dirname(DEF_OUT.rstrip("/")) or DEF_OUT, "dumps")
 PUID, PGID = int(ENV("PUID", "99")), int(ENV("PGID", "100"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 STARTED = time.time()
@@ -540,7 +542,12 @@ def notify(event, job):
         return
     src = os.path.basename(job.params["source"].rstrip("/"))
     r = job.result or {}
-    if job.params.get("type") == "backport":
+    if job.params.get("type") == "extract":
+        title, prio = (f"Entpackt: {r.get('title_id') or src}", 0) if event == "done" else (f"Entpacken Fehler: {src}", 1)
+        lines = [r.get("folder", ""), human(r.get("size")) if r.get("size") else ""] if event == "done" else \
+            [job.error or "unbekannter Fehler", f"Schritt: {job.step}"]
+        msg = "\n".join(x for x in lines if x)
+    elif job.params.get("type") == "backport":
         if event == "ps5":
             title, prio = f"Backport wartet auf PS5: {job.params.get('title_id') or src}", -1
             lines = [f"PS5 {SETTINGS['ps5_host']} nicht erreichbar – neuer Versuch alle {SETTINGS['ps5_retry_minutes']} min "
@@ -565,7 +572,7 @@ def notify(event, job):
         title, lines, prio = f"FPKG Fehler: {src}", [job.error or "unbekannter Fehler", f"Schritt: {job.step}"], 1
     else:
         title, lines, prio = f"FPKG wartet auf Freigabe: {src}", ["Erkennung prüfen und in der WebUI 'Bauen' klicken."], 0
-    if job.params.get("type") != "backport":
+    if job.params.get("type") not in ("backport", "extract"):
         msg = "\n".join(x for x in lines if x)
 
     def _send():
@@ -935,8 +942,39 @@ def parse_7z(job, line):
 
 # ---------------------------------------------------------------- jobs
 PUBLIC = ("id", "created", "status", "step", "prog", "plan", "params", "result", "warnings", "error",
-          "finished", "started", "phase", "origin", "next_try", "tries", "first_try")
+          "finished", "started", "phase", "origin", "next_try", "tries", "first_try", "pkg_name")
 ACTIVE = ("queued", "running", "waiting", "ready", "retry")
+
+
+RX_BADNAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def clean_name(n, ext=""):
+    """User-given file/folder name: no path parts or characters Windows/SMB can't store, optional extension."""
+    n = RX_BADNAME.sub("_", (n or "").strip()).strip(" .")
+    if ext and n.lower().endswith(ext):
+        n = n[:-len(ext)].rstrip(" .")
+    n = n[:200]
+    return (n + ext) if n else ""
+
+
+def name_component(version):
+    """fpkg-cli: <contentId>-A<c>-V<c>.pkg, c from contentVersion. Observed: 04.000.000 -> 0400 (major 2 digits +
+    first 2 digits of minor). Only used for the preview; the real name comes from fpkg-cli."""
+    parts = (version or "").split(".")
+    if len(parts) < 2 or not parts[0].isdigit() or not parts[1].isdigit():
+        return None
+    return parts[0].zfill(2)[-2:] + parts[1].zfill(3)[:2]
+
+
+def predict_pkg_name(content_id, version, fix=None):
+    c = name_component(version)
+    if not content_id or not c:
+        return None
+    base = f"{content_id}-A{c}-V{c}"
+    if fix:
+        base += "-backport" if "backport" in os.path.basename(fix.rstrip("/")).lower() else "-fix"
+    return base + ".pkg"
 
 
 def twin_dirs(d):
@@ -958,11 +996,11 @@ def twin_dirs(d):
     return out
 
 
-def unique_pkg_name(out_dir, name, fix=None, job=None):
+def unique_pkg_name(out_dir, name, fix=None, job=None, custom=False):
     """fpkg-cli names packages after content ID + version only, so the same game built twice (with/without
     fix, other preset) collides. Builds with a fix get -fix/-backport, an existing name gets -<date-time>."""
     base, ext = os.path.splitext(name)
-    if fix:
+    if fix and not custom:
         base += "-backport" if "backport" in os.path.basename(fix.rstrip("/")).lower() else "-fix"
     dirs = twin_dirs(out_dir)
 
@@ -999,6 +1037,7 @@ class Job:
         self.phase = "prep"
         self.origin = params.get("origin", "manual")
         self.next_try = None
+        self.pkg_name = None
         self.tries = 0
         self.first_try = None
         self._init_runtime()
@@ -1341,6 +1380,12 @@ class Job:
         m = re.search(r"Content ID (\S+) .*? version (\S+)", out)
         if m:
             self.log(f"-> {m.group(1)} v{m.group(2)}")
+        auto = predict_pkg_name(m.group(1), m.group(2), p.get("fix")) if m else None
+        self.pkg_name = p.get("pkg_name") or auto
+        if p.get("pkg_name"):
+            self.log(f"Paketname (eigener): {p['pkg_name']}" + (f" · automatisch wäre: {auto}" if auto else ""))
+        elif auto:
+            self.log(f"Paketname voraussichtlich: {auto}")
         m = re.search(r"Size: .*?\(([\d,]+) byte\)", out)
         self.src_bytes = int(m.group(1).replace(",", "")) if m else None
         if rc != 0 or "eboot.bin: no" in out or "sce_sys: no" in out:
@@ -1381,7 +1426,11 @@ class Job:
             if not pkgs:
                 raise JobError("Build lief durch, aber kein .pkg gefunden")
             name = pkgs[0]
-            final = os.path.join(p["out"], unique_pkg_name(p["out"], name, p.get("fix"), self))
+            if p.get("pkg_name"):
+                final = os.path.join(p["out"], unique_pkg_name(p["out"], p["pkg_name"], None, self, custom=True))
+            else:
+                final = os.path.join(p["out"], unique_pkg_name(p["out"], name, p.get("fix"), self))
+            self.pkg_name = os.path.basename(final)
             os.rename(os.path.join(stage, name), final)
         finally:
             shutil.rmtree(stage, ignore_errors=True)
@@ -1518,6 +1567,110 @@ class Job:
             raise JobError(str(e))
         finally:
             img.close()
+
+    # -- extract only: archive / exFAT image / FPKG -> plain app folder <dest>/<name>
+    def run_extract(self):
+        p = self.params
+        self.started = time.time()
+        dest = p["dest"]
+        os.makedirs(dest, exist_ok=True)
+        os.makedirs(self.work, exist_ok=True)  # lives inside dest, so the final move is a rename
+        self.log(f"FPKG WebUI {APP_VERSION} · Entpacken {self.id}\nQuelle: {p['source']}\nZiel:   {dest}/"
+                 f"{p.get('name') or '<TITLE_ID>'}\nOptionen: prüfsumme={p.get('checksum')} "
+                 f"archiv_löschen={p.get('delete_archive')}")
+        kind, src = classify(p["source"])
+        self.log(f"Erkannt: {kind} -> {src}")
+        if kind == "folder":
+            raise JobError("Die Quelle ist schon ein entpackter App-Ordner")
+        if kind in ("ffpkg", "ffpfsc"):
+            raise JobError(f".{kind}-Images kann fpkg-webui nicht entpacken – ShadowMountPlus mountet sie direkt")
+        if p.get("name") and os.path.exists(os.path.join(dest, p["name"])):
+            raise JobError(f"{os.path.join(dest, p['name'])} gibt es schon – anderen Ordnernamen wählen")
+        sums = find_checksums(src) if p.get("checksum", True) and os.path.isfile(src) else {}
+        first = {"archive": "Quelle entpacken", "exfat": "App aus exFAT kopieren", "pkg": "FPKG entpacken"}[kind]
+        self.set_plan((["Prüfsumme"] if sums else []) + [first, "Prüfen", "Verschieben"]
+                      + (["Quellarchiv löschen"] if p.get("delete_archive") and kind == "archive" else []))
+        if sums:
+            self.set_step("Prüfsumme")
+            self.verify_checksums(src, kind, sums)
+        vols = archive_volumes(src) if kind == "archive" else []
+
+        def from_kind(k, path):
+            if k == "folder":
+                return path
+            def step_before_check(label):
+                labels = [x["label"] for x in self.plan]
+                if label not in labels:
+                    i = labels.index("Prüfen")
+                    self.set_plan(labels[:i] + [label] + labels[i:])
+                self.set_step(label)
+            if k == "exfat":
+                step_before_check("App aus exFAT kopieren")
+                return self.extract_exfat(path)
+            if k == "pkg":
+                step_before_check("FPKG entpacken")
+                dst = os.path.join(self.work, "app")
+                self.run([CLI, "pkg-extract", path, "--output", dst, "--temp", os.path.join(self.work, "tmp")], parse_fpkg)
+                return find_app_dir(dst) or dst
+            raise JobError(f"Im Archiv steckt ein {k} – das lässt sich nicht entpacken")
+
+        if kind == "archive":
+            self.set_step("Quelle entpacken")
+            self.log("Archiv-Teile: " + ", ".join(os.path.basename(v) for v in vols)
+                     + f" ({human(sum(os.path.getsize(v) for v in vols))})")
+            dst = os.path.join(self.work, "src")
+            self.sevenz(src, dst)
+            strip_junk(dst)
+            app = from_kind(*self.unwrap_nested(dst))
+        else:
+            app = from_kind(kind, src)
+        strip_junk(app)
+
+        self.set_step("Prüfen")
+        rc, out = self.capture([CLI, "inspect", app])
+        m = re.search(r"Content ID (\S+) .*? version (\S+)", out)
+        cid, ver = (m.group(1), m.group(2)) if m else (None, None)
+        tid = None
+        try:
+            tid = (json.load(open(os.path.join(app, "sce_sys", "param.json"), encoding="utf-8")).get("titleId") or "").upper() or None
+        except (OSError, ValueError):
+            pass
+        if not tid:
+            mt = RX_TITLE.search(cid or "") or RX_TITLE.search(out) or RX_TITLE.search(p["source"])
+            tid = mt.group(0).upper() if mt else None
+        if "eboot.bin: no" in out or "sce_sys: no" in out:
+            self.warn("inspect: sce_sys oder eboot.bin fehlt – Ordner trotzdem behalten, bitte prüfen")
+        name = p.get("name") or tid or clean_name(re.sub(r"(\.part\d+)?\.(rar|7z|zip|exfat|pkg|\d{3})$", "",
+                                                          os.path.basename(p["source"].rstrip("/")), flags=re.I))
+        target = os.path.join(dest, name)
+        if os.path.exists(target):
+            target = os.path.join(dest, f"{name}-{time.strftime('%Y%m%d-%H%M')}")
+            self.warn(f"{os.path.join(dest, name)} gibt es schon – neuer Ordner heißt {os.path.basename(target)}")
+        self.log(f"Title-ID {tid or '?'} · Content-ID {cid or '?'} · Version {ver or '?'}")
+
+        self.set_step("Verschieben")
+        try:
+            os.rename(app, target)
+        except OSError:
+            self.log("Ziel auf anderem Dateisystem – kopiere …")
+            self.copy_tree(app, target)
+        chown_tree(target)
+        self.log(f"Fertig: {target}")
+        size = dir_size(target)
+        if p.get("delete_archive") and kind == "archive":
+            self.set_step("Quellarchiv löschen")
+            for v in vols:
+                try:
+                    os.remove(v)
+                    self.log(f"Quellarchiv gelöscht: {v}")
+                except OSError as e:
+                    self.warn(f"Konnte {v} nicht löschen: {e}")
+        shutil.rmtree(self.work, ignore_errors=True)
+        self.result = {"folder": target, "title_id": tid, "content_id": cid, "version": ver, "size": size,
+                       "duration": time.time() - self.started}
+        for x in self.plan:
+            x["state"] = "done"
+        self.reserve = 0
 
     # -- backport -> PS5 (ShadowMountPlus backports/<TITLE_ID>)
     def run_backport(self):
@@ -1765,7 +1918,8 @@ def finish(job, exc=None):
     """Common end handling for both phases. exc=None means success of the build phase."""
     if exc is None:
         job.status, job.step = "done", "fertig"
-        LOG.info("job %s: done -> %s", job.id, (job.result or {}).get("pkg") or (job.result or {}).get("target"))
+        r_ = job.result or {}
+        LOG.info("job %s: done -> %s", job.id, r_.get("pkg") or r_.get("target") or r_.get("folder"))
     elif isinstance(exc, Cancelled):
         job.status, job.step = "cancelled", "abgebrochen"
         job.log("\n== abgebrochen")
@@ -1815,7 +1969,11 @@ def prep_worker():
             LOG.info("job %s: prepare source=%s fix=%s", nxt.id, nxt.params["source"], nxt.params.get("fix"))
             save_jobs()
             try:
-                nxt.prepare()
+                if nxt.params.get("type") == "extract":
+                    nxt.run_extract()
+                    finish(nxt)
+                else:
+                    nxt.prepare()
             except BaseException as e:  # noqa: B902 - includes Cancelled
                 finish(nxt, e)
             with QUEUE_CV:
@@ -2250,6 +2408,11 @@ def probe(path, fixes=False):
         texts.append(out)
     m = next((m for m in (RX_TITLE.search(t or "") for t in texts) if m), None)
     info["title_id"] = m.group(0).upper() if m else None
+    mc = re.search(r"Content ID (\S+) .*? version (\S+)", texts[-1] if kind != "archive" else "")
+    if not mc and kind == "pkg":
+        mc = re.search(r"Content ID:\s*(\S+)[\s\S]*?contentVersion:\s*(\S+)", texts[-1])
+    info["content_id"], info["version"] = (mc.group(1), mc.group(2)) if mc else (None, None)
+    info["pkg_name"] = predict_pkg_name(info["content_id"], info["version"])
     if fixes:
         fixdir = SETTINGS.get("watch_fix_dir")
         try:
@@ -2396,7 +2559,7 @@ class H(BaseHTTPRequestHandler):
             if u.path in ("/", "/index.html"):
                 return self.send(200, open(os.path.join(HERE, "index.html"), "rb").read(), "text/html; charset=utf-8")
             if u.path == "/api/config":
-                return self.send(200, {"version": APP_VERSION, "out": DEF_OUT, "work": DEF_WORK,
+                return self.send(200, {"version": APP_VERSION, "out": DEF_OUT, "work": DEF_WORK, "extract": DEF_EXTRACT,
                                        "roots": [{"path": r, "label": root_label(r)} for r in roots()]})
             if u.path == "/api/ls":
                 return self.send(200, list_dir(q.get("path", "")))
@@ -2480,6 +2643,7 @@ class H(BaseHTTPRequestHandler):
                     "checksum": bool(b.get("checksum", True)),
                     "full_verify": bool(b.get("full_verify")),
                     "password": (b.get("password") or "")[:500],
+                    "pkg_name": clean_name(b.get("pkg_name"), ".pkg") or None,
                     "origin": "manual",
                 }
                 if params["delete_archive"] and classify(params["source"])[0] != "archive":
@@ -2509,6 +2673,30 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/backport/probe":
                 b = self.body()
                 return self.send(200, backport_probe((b.get("path") or "").strip(), (b.get("password") or "")[:500]))
+            if u.path == "/api/extract":
+                b = self.body()
+                src = safe_path((b.get("source") or "").strip())
+                dest = safe_path((b.get("dest") or "").strip() or DEF_EXTRACT, must_exist=False)
+                name = clean_name(b.get("name"))
+                if name and os.path.exists(os.path.join(dest, name)):
+                    raise JobError(f"{os.path.join(dest, name)} gibt es schon – anderen Ordnernamen wählen")
+                kind = classify(src)[0]
+                params = {"type": "extract", "source": src, "fix": None, "dest": dest, "name": name or None,
+                          "work": dest, "out": dest, "checksum": bool(b.get("checksum", True)),
+                          "delete_archive": bool(b.get("delete_archive")) and kind == "archive",
+                          "password": (b.get("password") or "")[:500], "cleanup": True, "origin": "manual"}
+                return self.send(200, enqueue(params).public())
+            m = re.match(r"^/api/jobs/([\w-]+)/name$", u.path)
+            if m and m.group(1) in JOBS:
+                j = JOBS[m.group(1)]
+                if j.status not in ("queued", "waiting", "ready") or j.params.get("type"):
+                    raise JobError("Name lässt sich nur vor dem Bauen ändern")
+                n = clean_name(self.body().get("name"), ".pkg")
+                j.params["pkg_name"] = n or None
+                j.pkg_name = n or None
+                j.log(f"Paketname geändert: {n or '(automatisch)'}")
+                save_jobs()
+                return self.send(200, j.public())
             if u.path == "/api/ps5/test":
                 return self.send(200, ps5_test())
             m = re.match(r"^/api/jobs/([\w-]+)/retry$", u.path)

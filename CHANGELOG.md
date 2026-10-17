@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0 – 2026-10-17
+- Neuer Modus „Entpacken“: Archiv (auch mehrteilig, verschachtelt wie DUPLEX, mit Passwort), `.exfat`-Image oder FPKG (`.pkg`) nur entpacken, ohne zu bauen. Ergebnis ist ein App-Ordner `<Zielordner>/<TITLE_ID>` (Ordnername frei wählbar), Standard-Ziel `<Ausgabe>/../dumps` bzw. `DEFAULT_EXTRACT`. Entpackt wird direkt im Zielordner, am Ende nur umbenannt; optional Prüfsumme und Quellarchiv danach löschen. Der Ordner taugt als Quelle für spätere Builds und als Ordner-Dump für ShadowMountPlus
+- Paketname sichtbar und änderbar: Das Formular zeigt, wie das Paket heißen wird (`<Content-ID>-A…-V…[-backport|-fix].pkg`, bei Ordnern/Images schon vor dem Start, bei Archiven nach dem Entpacken), optional eigener Name. Im Auftrag steht der Name nach „Quelle prüfen“ und lässt sich bis zum Start des Builds ändern (mit „Vor dem Bauen anhalten“ auch bei Archiven)
+
 ## 1.3.3 – 2026-10-17
 - Gleiches Spiel mehrfach bauen überschreibt nichts mehr: fpkg-cli benennt Pakete nur nach Content-ID und Version. Builds mit Fix heißen jetzt `…-V0400-backport.pkg` (Fix-Name enthält „backport“) bzw. `…-V0400-fix.pkg`; gibt es den Namen schon, wird `-JJJJMMTT-HHMM` angehängt (bei Bedarf `-2`, `-3` …) und im Auftrag gewarnt
 - Die Namensprüfung sieht auch Pakete, die der Unraid-Mover vom Pool aufs Array verschoben hat: Liegt die Ausgabe auf einem Pool-Pfad (z. B. `/output` = `/mnt/<pool>/NZB`), wird derselbe Unterordner in den anderen freigegebenen Ordnern (z. B. `/shares/NZB` = `/mnt/user/NZB`) mitgeprüft. Bisher sah der Container dort nur den Pool und gab dem zweiten Build denselben Namen
