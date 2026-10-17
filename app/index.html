@@ -132,13 +132,23 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .fb-item .z{color:var(--muted);font:12px var(--mono);white-space:nowrap}
 .fb-foot{display:flex;gap:8px;justify-content:flex-end;padding:12px;border-top:1px solid var(--line)}
 .ico{width:16px;text-align:center;color:var(--muted)}
+.mono{font-family:var(--mono)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.grid2 label.f{margin-top:12px}
+.bpinfo{font-size:12px;margin-top:8px}
+.bpinfo:empty{display:none}
+.bpinfo .box{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--panel2)}
+.bpinfo ul{margin:4px 0 0;padding-left:18px;color:var(--warn)}
+.bpinfo .files{font:11px var(--mono);color:var(--muted);margin-top:4px;word-break:break-all}
+.tres{font-size:13px;margin-top:8px} .tres div{padding:3px 0}
 </style>
 </head>
 <body>
 <header><h1>FPKG Builder</h1><span class="sub">PSVIETHOA fpkg-cli · Unraid</span><span class="sub" id="ver" style="flex:0"></span></header>
 <main>
   <section class="card">
-    <h2>Neuer Auftrag</h2>
+    <div class="tabs" id="mode-tabs"><button class="on" data-mode="fpkg">FPKG bauen</button><button data-mode="bp">Backport → PS5</button></div>
+    <div id="mode-fpkg">
     <label class="f" for="src">Quelle</label>
     <div class="row"><input id="src" type="text" placeholder="Datei oder Ordner wählen"><button data-pick="src" title="Durchsuchen">…</button></div>
     <div class="hint" id="src-hint">7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)</div>
@@ -176,6 +186,32 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     </details>
     <button class="primary" id="start">FPKG erstellen</button>
     <div class="hint err" id="start-err"></div>
+    </div>
+
+    <div id="mode-bp" style="display:none">
+      <label class="f" for="bp-src">Backport</label>
+      <div class="row"><input id="bp-src" type="text" placeholder="zip / rar / 7z oder Ordner"><button data-pick="bp-src" title="Durchsuchen">…</button></div>
+      <div class="hint" id="bp-src-hint">wird entpackt und per FTP nach <span class="mono">backports/&lt;TITLE_ID&gt;</span> auf die PS5 kopiert – ShadowMountPlus legt es beim Spielstart über das Spiel</div>
+      <div id="bp-sug" class="sug"></div>
+      <div id="bp-pw-wrap" style="display:none"><label class="f" for="bp-pw">Archiv-Passwort</label>
+        <input id="bp-pw" type="password" autocomplete="off" placeholder="leer = Passwörter aus den Einstellungen probieren"></div>
+      <div id="bp-var-wrap" style="display:none"><label class="f" for="bp-variant">Variante</label>
+        <select id="bp-variant"></select>
+        <div class="hint">das Archiv enthält mehrere Backports (z. B. je Firmware) – nur die gewählte Variante wird kopiert</div></div>
+      <div class="grid2">
+        <div><label class="f" for="bp-tid">Title-ID</label><input id="bp-tid" type="text" placeholder="PPSA12345" maxlength="9"></div>
+        <div><label class="f" for="bp-ver">Spielversion</label><input id="bp-ver" type="text" placeholder="z. B. 04.000.000"></div>
+      </div>
+      <div class="hint" id="bp-target"></div>
+      <div class="bpinfo" id="bp-info"></div>
+      <div class="opts">
+        <label><input type="checkbox" id="bp-ci"><span>Prüfen, ob das Spiel auf der PS5 installiert ist<small>fragt die ShadowMountPlus-API (Port <span id="bp-apiport">10101</span>); ohne Haken wird auch für noch nicht installierte Spiele kopiert</small></span></label>
+        <label><input type="checkbox" id="bp-cv"><span>Prüfen, ob die Spielversion passt<small>vergleicht die Version oben mit der installierten (CONTENT_VERSION); bricht bei Abweichung ab</small></span></label>
+      </div>
+      <p class="hint">Ein vorhandenes Backport für dieselbe Title-ID wird vorher auf der PS5 nach <span class="mono" id="bp-bakdir">/data/backport-backups</span> verschoben. Hochgeladen wird erst in einen Temp-Ordner, das Backport wird erst nach vollständigem Upload aktiv.</p>
+      <button class="primary" id="bp-start">Auf PS5 installieren</button>
+      <div class="hint err" id="bp-err"></div>
+    </div>
   </section>
 
   <section class="card">
@@ -250,6 +286,21 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       <h3>Archiv-Passwörter</h3>
       <textarea id="s-archive_passwords" rows="4" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--text);font:13px var(--mono)" placeholder="ein Passwort pro Zeile"></textarea>
       <div class="hint">werden der Reihe nach probiert, wenn ein Archiv passwortgeschützt ist und beim Auftrag kein Passwort angegeben wurde (auch für den Watch-Ordner)</div>
+
+      <h3>PS5 / ShadowMountPlus</h3>
+      <div class="hint">für „Backport → PS5“: Upload per FTP nach <span class="mono">&lt;Backport-Ordner&gt;/&lt;TITLE_ID&gt;</span>. Den FTP-Server (Port) bestimmt der Payload auf der PS5.</div>
+      <div class="grid">
+        <div><label class="f">PS5-Adresse</label><input id="s-ps5_host" type="text" placeholder="z. B. 192.168.0.50"></div>
+        <div><label class="f">FTP-Port</label><input id="s-ps5_ftp_port" type="text"></div>
+        <div><label class="f">FTP-Benutzer <span style="font-weight:400;color:var(--muted)">(leer = anonymous)</span></label><input id="s-ps5_ftp_user" type="text" autocomplete="off"></div>
+        <div><label class="f">FTP-Passwort</label><input id="s-ps5_ftp_pass" type="text" autocomplete="off"></div>
+        <div><label class="f">ShadowMountPlus-API-Port <span style="font-weight:400;color:var(--muted)">(nur für die Prüfungen)</span></label><input id="s-ps5_api_port" type="text"></div>
+        <div><label class="f">Backport-Ordner auf der PS5</label><input id="s-ps5_backport_dir" type="text"></div>
+        <div><label class="f">Sicherungen alter Backports</label><input id="s-ps5_backup_dir" type="text"></div>
+      </div>
+      <div class="hint">Die API ist auf der PS5 standardmäßig nur lokal erreichbar: <span class="mono">api_bind_address=0.0.0.0</span> in <span class="mono">/data/shadowmount/config.ini</span> setzen (ShadowMountPlus-Weboberfläche: LAN-Zugriff erlauben). Sie hat keine Anmeldung.</div>
+      <div class="row" style="margin-top:10px;flex-wrap:wrap"><button id="s-ps5test">Verbindung testen</button><span class="hint" id="s-ps5msg" style="align-self:center"></span></div>
+      <div class="tres" id="s-ps5res"></div>
 
       <h3>Pushover</h3>
       <div class="opts"><label><input type="checkbox" id="s-pushover_enabled"><span>Benachrichtigungen per Pushover</span></label></div>
@@ -402,7 +453,7 @@ async function fbLoad(p){
     L.appendChild(d);
   });
 }
-function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); if(fbTarget==='pk-dir') return loadPkgs(); if(fbTarget.startsWith('s-')) return; saveForm(); if(fbTarget==='src'||fbTarget==='fix') probe(fbTarget); else freeHint(fbTarget); }
+function choose(p){ $('#'+fbTarget).value=p; $('#fb').close(); if(fbTarget==='pk-dir') return loadPkgs(); if(fbTarget.startsWith('s-')) return; if(fbTarget==='bp-src'){ bpSave(); return bpProbe(); } saveForm(); if(fbTarget==='src'||fbTarget==='fix') probe(fbTarget); else freeHint(fbTarget); }
 $('#fb-here').onclick = () => fbPath && choose(fbPath);
 $('#fb-home').onclick = () => fbLoad('');
 $('#fb-cancel').onclick = () => $('#fb').close();
@@ -444,12 +495,13 @@ function ask(title, bullets, yes, no='Zurück'){
 
 // ---------- jobs
 let JOBLIST=[], curJob=null;
-function title(j){ const s=j.params.source.split('/').pop(); return j.params.fix ? s+'  +  '+j.params.fix.split('/').pop() : s; }
+const isBp = j => j.params && j.params.type==='backport';
+function title(j){ const s=j.params.source.split('/').pop(); return isBp(j) ? (j.params.title_id||(j.result&&j.result.title_id)||'Backport')+' → PS5  ·  '+s : (j.params.fix ? s+'  +  '+j.params.fix.split('/').pop() : s); }
 function overall(j){ if(!j.plan||!j.plan.length) return null; const n=j.plan.length; const d=j.plan.filter(x=>x.state==='done').length; const a=j.plan.findIndex(x=>x.state==='active'); const pct=(j.prog&&j.prog.pct!=null)?j.prog.pct/100:0; return Math.min(100,((d+(a>=0?pct:0))/n)*100); }
 function jobRow(j){
   const d=document.createElement('div'); d.className='job'+(j.id===sel?' sel':'');
   const ov = ['running','waiting','ready'].includes(j.status) ? overall(j) : null;
-  d.innerHTML=`<span class="chip c-${j.status}">${STATUS[j.status]||j.status}</span><div style="min-width:0"><div class="t">${esc(title(j))}${j.origin==="watch"?'<span class="tag">auto</span>':''}</div><div class="s">${esc(j.error||j.step||'')}</div>${ov!=null?`<div class="mini"><i style="width:${ov.toFixed(1)}%"></i></div>`:''}</div><span class="s">${new Date(j.created*1000).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>`;
+  d.innerHTML=`<span class="chip c-${j.status}">${STATUS[j.status]||j.status}</span><div style="min-width:0"><div class="t">${esc(title(j))}${j.origin==="watch"?'<span class="tag">auto</span>':''}${isBp(j)?'<span class="tag">PS5</span>':''}</div><div class="s">${esc(j.error||j.step||'')}</div>${ov!=null?`<div class="mini"><i style="width:${ov.toFixed(1)}%"></i></div>`:''}</div><span class="s">${new Date(j.created*1000).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>`;
   d.onclick=()=>select(j.id);
   return d;
 }
@@ -496,7 +548,11 @@ function renderJob(j){
     $('#d-eta').textContent = pr.eta ? 'noch ~'+pr.eta : (j.started? 'läuft seit '+dur(Date.now()/1000-j.started):'');
   }
   const res=$('#d-result');
-  if (j.result){
+  if (j.result && isBp(j)){
+    const x=j.result; res.style.display='block';
+    res.innerHTML = `Installiert: <b>${esc(x.host)}:${esc(x.target)}</b><br>${esc(x.title_id)} · ${x.files} Dateien · ${human(x.size)}${x.fw?' · FW-Ziel '+esc(x.fw):''}${x.version?' · für Version '+esc(x.version):''}${x.duration?' · Dauer '+dur(x.duration):''}`
+      + (x.backup ? `<br>altes Backport gesichert: <b>${esc(x.backup)}</b>` : '<br>es gab vorher kein Backport für diese Title-ID');
+  } else if (j.result){
     const x=j.result; res.style.display='block';
     res.innerHTML = `Paket: <b>${esc(x.pkg)}</b><br>${esc(x.title||'')} · ${esc(x.content_id||'')} · Version ${esc(x.version||'?')} · Firmware ${esc(x.fw||'?')} · ${human(x.size)} · ${x.verify_mode==='full'?'Vollprüfung':'Schnellprüfung'} ${x.verify?'<span class="okc">OK</span>':'<span class="bad">FEHLER</span>'}${x.duration?' · Dauer '+dur(x.duration):''}`
       + (x.fix_missing && x.fix_missing.length ? `<br><span style="color:var(--warn)">nicht im Paket: ${esc(x.fix_missing.join(', '))}</span>` : (x.fix_missing ? '<br><span style="color:var(--ok)">alle Fix-Dateien im Paket</span>' : ''));
@@ -516,6 +572,8 @@ async function pollLog(){
 }
 function cancelBullets(j){
   const p=j.params, b=[];
+  if (isBp(j)) return [j.status==='running' ? `Der laufende Schritt <b>${esc(j.step)}</b> wird gestoppt.` : 'Der Auftrag wird aus der Warteschlange genommen.',
+    'Ein halb hochgeladenes Backport wird auf der PS5 wieder entfernt, ein vorhandenes bleibt unverändert.', 'Das Backport-Archiv bleibt erhalten.'];
   const archGone = p.delete_archive && (j.plan||[]).some(x=>x.label==='Quelle entpacken' && x.state==='done');
   if (j.status==='running') b.push(`Der laufende Schritt <b>${esc(j.step)}</b> wird gestoppt${j.phase==='build'?' – das halb gebaute Paket wird verworfen':''}.`);
   else if (j.status==='queued') b.push('Der Auftrag wird aus der Warteschlange genommen, es wurde noch nichts gemacht.');
@@ -609,7 +667,7 @@ $('#g-selftest').onclick = async () => {
 };
 
 // ---------- settings
-const SKEYS = ['archive_passwords','overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','watch_stable','watch_interval','watch_preset','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting'];
+const SKEYS = ['archive_passwords','overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','watch_stable','watch_interval','watch_preset','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting','ps5_host','ps5_ftp_port','ps5_ftp_user','ps5_ftp_pass','ps5_api_port','ps5_backport_dir','ps5_backup_dir'];
 async function loadSettings(){
   try{ const s = await api('/api/settings'); const L=s.locked||[]; SKEYS.forEach(k=>{ const e=$('#s-'+k); if(!e) return; if(e.type==='checkbox') e.checked=!!s[k]; else e.value=s[k]??''; e.disabled=L.includes(k); if(L.includes(k)) e.title='aus dem Unraid-Template (Umgebungsvariable)'; }); $('#s-envhint').textContent = L.length ? 'Gesperrte Felder kommen aus dem Unraid-Template: '+L.map(k=>({pushover_user:'PUSHOVER_USER',pushover_token:'PUSHOVER_TOKEN',webui_url:'WEBUI_URL'})[k]).join(', ') : ''; }catch(e){ $('#s-msg').textContent=e.message; }
   loadWatch();
@@ -626,13 +684,77 @@ async function loadWatch(){
     document.querySelectorAll('[data-forget]').forEach(b=>b.onclick=()=>post('/api/watch/forget',{key:b.dataset.forget}).then(loadWatch));
   }catch(e){}
 }
+$('#s-ps5test').onclick = async () => { const m=$('#s-ps5msg'), r=$('#s-ps5res'); m.className='hint'; m.textContent='speichere und teste …'; r.innerHTML='';
+  try{ await post('/api/settings', readSettings()); const t=await post('/api/ps5/test'); m.textContent='';
+    r.innerHTML = [['FTP',t.ftp],['ShadowMountPlus-API',t.api]].map(([k,v])=>`<div>${v.ok?'<span class="okc">OK</span>':'<span class="bad">FEHLER</span>'} ${k}: <span style="color:var(--muted)">${esc(v.detail)}</span></div>`).join('');
+    loadSettings(); bpTarget();
+  }catch(e){ m.className='hint err'; m.textContent=e.message; } };
 $('#w-scan').onclick = () => post('/api/watch/scan').then(()=>setTimeout(loadWatch,1500));
+
+// ---------- backport -> PS5
+let BPS = {}, bpInfo = null, bpT = null;
+function showMode(m){ document.querySelectorAll('#mode-tabs button').forEach(b=>b.classList.toggle('on', b.dataset.mode===m)); $('#mode-fpkg').style.display=m==='fpkg'?'':'none'; $('#mode-bp').style.display=m==='bp'?'':'none'; try{ localStorage.setItem('fpkg-mode', m); }catch(e){} if(m==='bp'){ bpSettings(); bpList(); } }
+document.querySelectorAll('#mode-tabs button').forEach(b => b.onclick = () => showMode(b.dataset.mode));
+function bpSave(){ try{ localStorage.setItem('fpkg-bp', JSON.stringify({src:$('#bp-src').value, ci:$('#bp-ci').checked, cv:$('#bp-cv').checked})); }catch(e){} }
+function bpLoad(){ try{ const o=JSON.parse(localStorage.getItem('fpkg-bp')||'{}'); if(o.src) $('#bp-src').value=o.src; $('#bp-ci').checked=!!o.ci; $('#bp-cv').checked=!!o.cv; }catch(e){} }
+async function bpSettings(){ try{ BPS = await api('/api/settings'); }catch(e){ return; } $('#bp-apiport').textContent=BPS.ps5_api_port; $('#bp-bakdir').textContent=BPS.ps5_backup_dir; bpTarget(); }
+function bpTarget(){ const t=$('#bp-tid').value.trim().toUpperCase()||'<TITLE_ID>', h=$('#bp-target');
+  if (!BPS.ps5_host){ h.className='hint warn'; h.textContent='PS5-Adresse fehlt – unter Einstellungen → PS5 / ShadowMountPlus eintragen'; return; }
+  h.className='hint'; h.textContent=`Ziel: ${BPS.ps5_host} · FTP ${BPS.ps5_ftp_port} · ${BPS.ps5_backport_dir}/${t}`; }
+async function bpList(){
+  const box=$('#bp-sug'); let r; try{ r=await api('/api/backport/list'); }catch(e){ return; }
+  box.innerHTML=''; if(!r.items.length){ if(r.dir) box.textContent=`Fix-Ordner ${r.dir} ist leer`; return; }
+  const lab=document.createElement('span'); lab.textContent='Aus dem Fix-Ordner:'; box.appendChild(lab);
+  const add=f=>{ const b=document.createElement('button'); b.type='button'; if($('#bp-src').value===f.path) b.className='match'; b.textContent=f.name+(f.size!=null?' · '+human(f.size):''); b.title=f.path; b.onclick=()=>{ $('#bp-src').value=f.path; bpSave(); bpProbe(); bpList(); }; box.appendChild(b); };
+  r.items.slice(0,6).forEach(add);
+  if (r.items.length>6){ const m=document.createElement('button'); m.type='button'; m.className='all'; m.textContent=`${r.items.length-6} weitere zeigen`; m.onclick=()=>{ m.remove(); r.items.slice(6).forEach(add); }; box.appendChild(m); }
+}
+function bpRenderVariant(){
+  const v = bpInfo && bpInfo.variants ? bpInfo.variants.find(x=>x.root===$('#bp-variant').value) || bpInfo.variants[0] : null, I=$('#bp-info');
+  if (!v){ I.innerHTML=''; return; }
+  I.innerHTML = `<div class="box">${v.files} Dateien · ${human(v.size)} · Wurzel <span class="mono">/${esc(v.root)}</span>${(v.fw||bpInfo.fw)?' · FW-Ziel '+esc(v.fw||bpInfo.fw):''}`
+    + (v.notes.length ? `<ul>${v.notes.map(n=>`<li>${esc(n)}</li>`).join('')}</ul>` : '')
+    + `<div class="files">${v.sample.map(esc).join('<br>')}${v.files>v.sample.length?'<br>… '+(v.files-v.sample.length)+' weitere':''}</div></div>`;
+}
+async function bpProbe(){
+  const v=$('#bp-src').value.trim(), h=$('#bp-src-hint'); bpInfo=null; $('#bp-info').innerHTML=''; $('#bp-var-wrap').style.display='none';
+  if (!v){ h.className='hint'; h.textContent=''; return; }
+  h.className='hint'; h.textContent='prüfe …';
+  try{
+    const r = await post('/api/backport/probe', {path:v, password:$('#bp-pw').value}); bpInfo=r;
+    if (r.encrypted) $('#bp-pw-wrap').style.display='';
+    if (!r.listed){ h.className='hint warn'; h.textContent='passwortgeschützt (auch die Dateinamen) – Passwort eintragen'; return; }
+    h.className='hint ok'; h.textContent = (r.kind==='folder'?'Ordner':'Archiv') + (r.size?' · '+human(r.size):'') + (r.encrypted?' · 🔒':'') + (r.title_id?' · '+r.title_id:' · Title-ID nicht erkannt');
+    $('#bp-tid').value = r.title_id || ''; $('#bp-ver').value = r.version || '';
+    const sel=$('#bp-variant'); sel.innerHTML = r.variants.map(x=>`<option value="${esc(x.root)}">${esc(x.root||'(oberste Ebene)')} · ${x.files} Dateien</option>`).join('');
+    $('#bp-var-wrap').style.display = r.variants.length>1 ? '' : 'none';
+    bpRenderVariant(); bpTarget();
+  }catch(e){ h.className='hint err'; h.textContent=e.message; }
+}
+$('#bp-src').addEventListener('input', ()=>{ bpSave(); clearTimeout(bpT); bpT=setTimeout(bpProbe, 500); });
+$('#bp-pw').addEventListener('change', bpProbe);
+$('#bp-variant').addEventListener('change', bpRenderVariant);
+$('#bp-tid').addEventListener('input', bpTarget);
+$('#bp-cv').addEventListener('change', ()=>{ if($('#bp-cv').checked) $('#bp-ci').checked=true; bpSave(); });
+$('#bp-ci').addEventListener('change', ()=>{ if(!$('#bp-ci').checked) $('#bp-cv').checked=false; bpSave(); });
+$('#bp-start').onclick = async () => {
+  $('#bp-err').textContent='';
+  const b = {source:$('#bp-src').value.trim(), title_id:$('#bp-tid').value.trim(), version:$('#bp-ver').value.trim(),
+             variant: bpInfo && bpInfo.variants && bpInfo.variants.length>1 ? $('#bp-variant').value : null,
+             check_installed:$('#bp-ci').checked, check_version:$('#bp-cv').checked, password:$('#bp-pw').value};
+  if (!b.source){ $('#bp-err').textContent='Backport fehlt'; return; }
+  $('#bp-start').disabled=true;
+  try{ const j = await post('/api/backport', b); showTab('jobs'); select(j.id); await refresh(); }
+  catch(e){ $('#bp-err').textContent=e.message; }
+  finally{ $('#bp-start').disabled=false; }
+};
 
 (async () => {
   CFG = await api('/api/config');
   $('#ver').textContent = 'v'+CFG.version;
   $('#out').value = CFG.out; $('#work').value = CFG.work; $('#pk-dir').value = CFG.out;
-  loadForm(); updDel();
+  loadForm(); updDel(); bpLoad();
+  try{ if(localStorage.getItem('fpkg-mode')==='bp'){ showMode('bp'); bpProbe(); } }catch(e){}
   probe('src'); probe('fix'); freeHint('out'); freeHint('work');
   await refresh(); pollLog();
   setInterval(refresh, 3000); setInterval(pollLog, 1200); setInterval(()=>{ if(curTab==='set') loadWatch(); }, 5000); setInterval(()=>{ if(curTab==='pkgs') loadChecks(); }, 1500);

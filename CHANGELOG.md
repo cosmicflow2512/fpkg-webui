@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0 – 2026-10-17
+- Neuer Modus „Backport → PS5“ (Umschalter oben im Formular): Backport-Archiv (zip/rar/7z, auch mehrteilig/passwortgeschützt) oder Ordner wählen, die WebUI entpackt es und kopiert es per FTP nach `<Backport-Ordner>/<TITLE_ID>` auf der PS5 (Standard `/data/homebrew/backports`). ShadowMountPlus (ab 1.7beta2 auch für installierte PKGs) legt es beim Spielstart über das Spiel, das Paket selbst bleibt unverändert
+- Title-ID, Spielversion und Firmware-Ziel kommen aus dem Namen (z. B. `[DLPSGAME.COM]-FW_4xx_PPSA09663_…_04_000_000_backport_files.zip`), beide Felder sind editierbar. Die Backport-Wurzel (Ordner mit `eboot.bin`, `sce_module/`, `fakelib/`, `sce_sys/`) wird gesucht, Hüllordner und Readmes bleiben weg; enthält das Archiv mehrere Varianten, wird eine im Formular gewählt
+- Optional vor dem Kopieren über die ShadowMountPlus-API prüfen, ob das Spiel installiert ist und ob die Version passt – ohne Haken wird auch für noch nicht installierte Spiele kopiert
+- Upload erst in einen Temp-Ordner, Größen werden geprüft; ein vorhandenes Backport derselben Title-ID wird nach `/data/backport-backups/<TITLE_ID>-<Zeit>` verschoben, erst dann wird das neue aktiv. Abbruch/Fehler entfernt den halben Upload
+- Hinweise im Auftrag: mehr als 256 Dateien (Redirect-Limit von ShadowMountPlus bei installierten PKGs), `libSceAmpr.sprx`/`libScePlayGo.sprx`/`libkernel.sprx` in `fakelib/` (entfernt ShadowMountPlus bei installierten PKGs), fakelib für den Titel deaktiviert
+- Einstellungen → PS5 / ShadowMountPlus: Adresse, FTP-Port/-Benutzer/-Passwort, API-Port, Backport- und Sicherungsordner, „Verbindung testen“
+- Backport-Aufträge laufen in einer eigenen Warteschlange neben den FPKG-Builds
+
 ## 1.2.5 – 2026-10-10
 - Neues Handbuch `docs/ANLEITUNG.md`: alle Bedienelemente mit Ablauf dahinter, Archive/Teile, Kompression, Watch-Ordner, Fehlerbilder, Architektur, API-Referenz, Update-Ablauf
 - Image-Build repariert: 1.2.4 hatte die neue fpkg-cli-Version ohne neue SHA-256-Prüfsumme, der Build auf `main` schlug fehl (`:latest` blieb auf 1.2.3)

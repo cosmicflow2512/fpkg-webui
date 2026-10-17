@@ -3,6 +3,7 @@
 
 Python stdlib only. One build at a time, further jobs wait in a queue.
 """
+import ftplib
 import glob
 import hashlib
 import io
@@ -11,6 +12,7 @@ import logging
 import logging.handlers
 import os
 import platform
+import posixpath
 import re
 import shutil
 import signal
@@ -27,9 +29,10 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 
+import backport as bp
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.2.5"
+APP_VERSION = "1.3.0"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -342,9 +345,16 @@ DEFAULT_SETTINGS = {
     "notify_failed": True,
     "notify_waiting": True,
     "webui_url": "",
+    "ps5_host": "",
+    "ps5_ftp_port": 2121,
+    "ps5_ftp_user": "",
+    "ps5_ftp_pass": "",
+    "ps5_api_port": 10101,
+    "ps5_backport_dir": "/data/homebrew/backports",
+    "ps5_backup_dir": "/data/backport-backups",
 }
 SETTINGS = dict(DEFAULT_SETTINGS)
-SECRET_KEYS = ("pushover_user", "pushover_token")
+SECRET_KEYS = ("pushover_user", "pushover_token", "ps5_ftp_pass")
 # values set via container environment (Unraid template) win over the UI and are shown read-only
 ENV_SETTINGS = {"pushover_user": "PUSHOVER_USER", "pushover_token": "PUSHOVER_TOKEN", "webui_url": "WEBUI_URL"}
 LOCKED = set()
@@ -404,11 +414,15 @@ def update_settings(b):
         elif isinstance(default, bool):
             v = bool(v)
         elif isinstance(default, int):
-            v = max(5, int(v))
+            v = max(1, min(65535, int(v))) if k.endswith("_port") else max(5, int(v))
         else:
             v = str(v or "").strip()
         if k in ("watch_dir", "watch_fix_dir") and v:
             v = safe_path(v, must_exist=False)
+        if k in ("ps5_backport_dir", "ps5_backup_dir"):
+            v = "/" + v.strip("/") if v.strip("/") else DEFAULT_SETTINGS[k]
+        if k == "ps5_host" and v and not re.match(r"^[A-Za-z0-9.\-:\[\]]+$", v):
+            raise JobError(f"PS5-Adresse ungültig: {v!r}")
         if k == "watch_preset" and v not in ("fast", "standard", "smallest"):
             v = "standard"
         if k == "watch_after" and v not in ("move", "keep"):
@@ -513,7 +527,16 @@ def notify(event, job):
         return
     src = os.path.basename(job.params["source"].rstrip("/"))
     r = job.result or {}
-    if event == "done":
+    if job.params.get("type") == "backport":
+        if event == "done":
+            title, prio = f"Backport auf der PS5: {r.get('title_id', '')}", 0
+            lines = [src, f"{r.get('files', '?')} Dateien · {human(r.get('size'))} → {r.get('target', '')}",
+                     f"altes Backport gesichert: {r['backup']}" if r.get("backup") else ""]
+        else:
+            title, prio = f"Backport Fehler: {src}", 1
+            lines = [job.error or "unbekannter Fehler", f"Schritt: {job.step}"]
+        msg = "\n".join(x for x in lines if x)
+    elif event == "done":
         title = f"FPKG fertig: {r.get('title') or src}"
         lines = [f"Version {r.get('version', '?')} · FW {r.get('fw', '?')} · {human(r.get('size'))}",
                  f"Dauer {fmt_eta(r.get('duration'))}" if r.get("duration") else "",
@@ -525,7 +548,8 @@ def notify(event, job):
         title, lines, prio = f"FPKG Fehler: {src}", [job.error or "unbekannter Fehler", f"Schritt: {job.step}"], 1
     else:
         title, lines, prio = f"FPKG wartet auf Freigabe: {src}", ["Erkennung prüfen und in der WebUI 'Bauen' klicken."], 0
-    msg = "\n".join(x for x in lines if x)
+    if job.params.get("type") != "backport":
+        msg = "\n".join(x for x in lines if x)
 
     def _send():
         ok, info = send_pushover(title, msg, prio, SETTINGS.get("webui_url") or None)
@@ -1435,6 +1459,169 @@ class Job:
         finally:
             img.close()
 
+    # -- backport -> PS5 (ShadowMountPlus backports/<TITLE_ID>)
+    def run_backport(self):
+        p = self.params
+        self.started = time.time()
+        os.makedirs(self.work, exist_ok=True)
+        src = p["source"]
+        host = SETTINGS["ps5_host"]
+        bdir, kdir = SETTINGS["ps5_backport_dir"], SETTINGS["ps5_backup_dir"]
+        checks = p.get("check_installed") or p.get("check_version")
+        self.log(f"FPKG WebUI {APP_VERSION} · Backport-Job {self.id}\nQuelle: {src}\n"
+                 f"PS5: {host or '-'} · FTP-Port {SETTINGS['ps5_ftp_port']} · Ziel {bdir}/<TITLE_ID>\n"
+                 f"Optionen: installiert_prüfen={bool(p.get('check_installed'))} "
+                 f"version_prüfen={bool(p.get('check_version'))} variante={p.get('variant') or '-'}")
+        if not host:
+            raise JobError("PS5-Adresse fehlt – unter Einstellungen → PS5 / ShadowMountPlus eintragen")
+        is_dir = os.path.isdir(src)
+        self.set_plan(([] if is_dir else ["Backport entpacken"]) + ["Backport prüfen"]
+                      + (["PS5 prüfen"] if checks else []) + ["Hochladen", "Aufräumen"])
+        if is_dir:
+            base = src
+        else:
+            self.set_step("Backport entpacken")
+            arc = first_volume(archive_volumes(src))
+            base = os.path.join(self.work, "bp")
+            self.sevenz(arc, base)
+            strip_junk(base)
+
+        self.set_step("Backport prüfen")
+        files = rel_files(base)
+        if not files:
+            raise JobError("Backport enthält keine Dateien")
+        roots_ = bp.find_roots(files)
+        variant = p.get("variant")
+        if variant is not None and variant in roots_:
+            root = variant
+        elif len(roots_) == 1:
+            root = roots_[0]
+        else:
+            raise JobError("Mehrere Varianten im Backport, bitte im Formular eine wählen: "
+                           + " | ".join(r or "(oberste Ebene)" for r in roots_))
+        rdir = os.path.join(base, root) if root else base
+        rel = rel_files(rdir)
+        ni = bp.name_info(os.path.basename(src.rstrip("/")))
+        tid = (p.get("title_id") or "").strip().upper() or ni["title_id"]
+        if not tid:
+            m = bp.RX_TITLE.search(root) or next((bp.RX_TITLE.search(f) for f in files if bp.RX_TITLE.search(f)), None)
+            tid = m.group(0).upper() if m else None
+        if not tid:
+            pj = os.path.join(rdir, "sce_sys", "param.json")
+            try:
+                tid = (json.load(open(pj, encoding="utf-8")).get("titleId") or "").upper() or None
+            except (OSError, ValueError):
+                pass
+        if not tid or not re.fullmatch(r"(PPSA|PPSB|CUSA)\d{5}", tid):
+            raise JobError(f"Title-ID nicht erkannt ({tid or 'keine'}) – im Formular eintragen, z. B. PPSA09663")
+        size = sum(os.path.getsize(os.path.join(rdir, f)) for f in rel)
+        self.log(f"Title-ID {tid} · Version laut Name {ni['version'] or '?'} · Firmware-Ziel {ni['fw'] or '?'}")
+        self.log(f"Wurzel: /{root} · {len(rel)} Dateien · {human(size)}")
+        for f in rel:
+            self.log("  " + f)
+        for n in bp.check_files(rel):
+            self.warn(n)
+
+        if checks:
+            self.set_step("PS5 prüfen")
+            try:
+                g = bp.smp_game(host, SETTINGS["ps5_api_port"], tid)
+            except OSError as e:
+                raise JobError(f"ShadowMountPlus-API nicht erreichbar ({host}:{SETTINGS['ps5_api_port']}): {e} – "
+                               "auf der PS5 muss api_bind_address=0.0.0.0 gesetzt sein, oder die Prüfung abwählen")
+            if not g:
+                raise JobError(f"{tid} ist laut ShadowMountPlus nicht installiert – Spiel zuerst installieren "
+                               "oder „Installation prüfen“ abwählen")
+            self.log(f"PS5: {g.get('title_name') or '?'} · Version {g.get('version') or '?'} · Quelle {g.get('source_type')}"
+                     f" · fakelib {'an' if g.get('fakelib_effective_enabled') else 'aus'}")
+            if g.get("platform") == "ps5" and g.get("fakelib_effective_enabled") is False and any(
+                    f.split("/")[0] in ("fakelib", "fakelib2") for f in rel):
+                self.warn("fakelib ist für dieses Spiel in ShadowMountPlus deaktiviert – fakelib/ des Backports wird nicht gemountet")
+            if p.get("check_version"):
+                want = (p.get("version") or "").strip() or ni["version"]
+                same = bp.same_version(want, g.get("version"))
+                if not want:
+                    self.warn("Spielversion im Namen nicht erkannt – Versionsprüfung übersprungen")
+                elif same is None:
+                    self.warn(f"PS5 meldet keine Version für {tid} – Versionsprüfung übersprungen")
+                elif not same:
+                    raise JobError(f"Version passt nicht: Backport für {want}, auf der PS5 ist {g.get('version')} installiert")
+                else:
+                    self.log(f"Version passt: {want}")
+
+        self.set_step("Hochladen")
+        target = posixpath.join(bdir, tid)
+        tmp = posixpath.join(bdir, f".{tid}.upload-{self.id}")
+        ftp = self._ftp()
+        done, t0, last = [0], time.time(), [0.0]
+
+        def cb(chunk):
+            done[0] += len(chunk)
+            now = time.time()
+            if now - last[0] > 0.7:
+                last[0] = now
+                self.check()
+                spd = done[0] / max(now - t0, 0.001)
+                self.set_progress(done[0] * 100 / max(size, 1), None,
+                                  f"{human(done[0])} / {human(size)} · {human(spd)}/s",
+                                  fmt_eta((size - done[0]) / spd if spd else None))
+        try:
+            ftp.makedirs(bdir)
+            ftp.makedirs(tmp)
+            made = {tmp}
+            for f in rel:
+                rd = posixpath.dirname(posixpath.join(tmp, f))
+                if rd not in made:
+                    ftp.makedirs(rd)
+                    made.add(rd)
+                self.set_progress(None if not size else done[0] * 100 / size, None, f, None)
+                ftp.upload(os.path.join(rdir, f), posixpath.join(tmp, f), cb)
+            bad = []
+            for f in rel:
+                rs = ftp.size(posixpath.join(tmp, f))
+                if rs is not None and rs != os.path.getsize(os.path.join(rdir, f)):
+                    bad.append(f"{f} ({rs} statt {os.path.getsize(os.path.join(rdir, f))} Bytes)")
+            if bad:
+                raise JobError("Größe nach dem Hochladen falsch: " + ", ".join(bad[:5]))
+            self.log(f"{len(rel)} Dateien hochgeladen ({human(size)} in {fmt_eta(time.time() - t0)}), Größen geprüft")
+            backup = None
+            if ftp.isdir(target):
+                ftp.makedirs(kdir)
+                backup = posixpath.join(kdir, bp.backup_name(tid, self.id[-4:]))
+                ftp.rename(target, backup)
+                self.log(f"Vorhandenes Backport gesichert: {target} -> {backup}")
+            ftp.rename(tmp, target)
+            self.log(f"Installiert: {target}")
+        except BaseException:
+            ftp.close()
+            try:
+                f2 = self._ftp()
+                if f2.isdir(tmp):
+                    f2.rmtree(tmp)
+                    self.log(f"Unvollständigen Upload entfernt: {tmp}")
+                f2.close()
+            except Exception as e:
+                self.log(f"Konnte {tmp} nicht entfernen: {e}")
+            raise
+        ftp.close()
+        self.set_progress(100)
+        self.result = {"title_id": tid, "target": target, "backup": backup, "files": len(rel), "size": size,
+                       "version": ni["version"], "fw": ni["fw"], "root": root, "host": host,
+                       "duration": time.time() - self.started}
+        self.set_step("Aufräumen")
+        shutil.rmtree(self.work, ignore_errors=True)
+        self.log(f"Arbeitsordner gelöscht: {self.work}")
+        for x in self.plan:
+            x["state"] = "done"
+        self.reserve = 0
+
+    def _ftp(self):
+        try:
+            return bp.Ftp(SETTINGS["ps5_host"], SETTINGS["ps5_ftp_port"], SETTINGS["ps5_ftp_user"],
+                          SETTINGS["ps5_ftp_pass"])
+        except (OSError, EOFError, ftplib.all_errors) as e:
+            raise JobError(f"FTP-Verbindung zur PS5 fehlgeschlagen ({SETTINGS['ps5_host']}:{SETTINGS['ps5_ftp_port']}): {e}")
+
     def cancel(self):
         LOG.info("job %s: cancel requested", self.id)
         self.cancel_flag = True
@@ -1495,7 +1682,7 @@ def finish(job, exc=None):
     """Common end handling for both phases. exc=None means success of the build phase."""
     if exc is None:
         job.status, job.step = "done", "fertig"
-        LOG.info("job %s: done -> %s", job.id, (job.result or {}).get("pkg"))
+        LOG.info("job %s: done -> %s", job.id, (job.result or {}).get("pkg") or (job.result or {}).get("target"))
     elif isinstance(exc, Cancelled):
         job.status, job.step = "cancelled", "abgebrochen"
         job.log("\n== abgebrochen")
@@ -1534,7 +1721,7 @@ def prep_worker():
         try:
             with QUEUE_CV:
                 while True:
-                    nxt = next((JOBS[i] for i in ORDER if JOBS[i].status == "queued"), None)
+                    nxt = next((JOBS[i] for i in ORDER if JOBS[i].status == "queued" and not is_bp(JOBS[i])), None)
                     ready = any(JOBS[i].status == "ready" for i in ORDER)
                     pending = ready or any(JOBS[i].status == "waiting" for i in ORDER)
                     # overlap: prepare at most one job ahead of the running build
@@ -1552,6 +1739,34 @@ def prep_worker():
                 QUEUE_CV.notify_all()
         except Exception:
             LOG.exception("prep worker crashed, continuing")
+            time.sleep(1)
+
+
+def is_bp(j):
+    return j.params.get("type") == "backport"
+
+
+def backport_worker():
+    """Backport -> PS5 uploads. Independent of the FPKG queue, one at a time."""
+    while True:
+        try:
+            with QUEUE_CV:
+                while True:
+                    nxt = next((JOBS[i] for i in ORDER if JOBS[i].status == "queued" and is_bp(JOBS[i])), None)
+                    if nxt:
+                        break
+                    QUEUE_CV.wait(5)
+                nxt.status, nxt.phase = "running", "backport"
+            save_jobs()
+            try:
+                nxt.run_backport()
+                finish(nxt)
+            except BaseException as e:  # noqa: B902
+                finish(nxt, e)
+            with QUEUE_CV:
+                QUEUE_CV.notify_all()
+        except Exception:
+            LOG.exception("backport worker crashed, continuing")
             time.sleep(1)
 
 
@@ -1925,6 +2140,76 @@ def probe(path, fixes=False):
     return info
 
 
+def backport_probe(path, password=""):
+    """What would be uploaded: title ID, version/FW from the name, variants (roots) with file counts."""
+    rp = safe_path(path)
+    info = {"path": rp, "name": os.path.basename(rp.rstrip("/")), "encrypted": False, "listed": True}
+    info.update(bp.name_info(info["name"]))
+    if os.path.isdir(rp):
+        info["kind"] = "folder"
+        files = rel_files(rp)
+        sizes = {f: os.path.getsize(os.path.join(rp, f)) for f in files}
+    elif lower_ext(rp) in ARCHIVES:
+        info["kind"] = "archive"
+        arc = first_volume(archive_volumes(rp))
+        info["size"] = sum(os.path.getsize(v) for v in archive_volumes(arc))
+        state, listing = archive_encryption(arc)
+        info["encrypted"] = state in ("header", "data")
+        if state == "header":
+            pw = find_password(arc, state, listing, password_candidates(password))
+            if pw is None:
+                info["listed"] = False
+                return info
+            _, listing = cmd_out_stdin([SEVENZ, "l", "-slt", f"-p{pw}", arc], 300)
+        elif state == "unknown":
+            raise JobError("Archiv nicht lesbar: " + (listing.strip().splitlines() or ["?"])[-1][:200])
+        ent = [(n, sz) for n, sz, d in bp.slt_entries(listing) if not d]
+        files = [n for n, _ in ent]
+        sizes = dict(ent)
+    else:
+        raise JobError("Backport als Archiv (zip/rar/7z) oder Ordner wählen")
+    if not info["title_id"]:
+        m = next((bp.RX_TITLE.search(f) for f in files if bp.RX_TITLE.search(f)), None)
+        info["title_id"] = m.group(0).upper() if m else None
+    info["variants"] = []
+    for r in bp.find_roots(files):
+        rel = bp.files_under(files, r)
+        pre = r + "/" if r else ""
+        info["variants"].append({"root": r, "files": len(rel), "size": sum(sizes.get(pre + f, 0) for f in rel),
+                                 "fw": bp.name_info(r)["fw"], "notes": bp.check_files(rel),
+                                 "sample": rel[:12]})
+    return info
+
+
+def ps5_test():
+    host = SETTINGS["ps5_host"]
+    if not host:
+        raise JobError("PS5-Adresse fehlt")
+    res = {"ftp": None, "api": None}
+    try:
+        f = bp.Ftp(host, SETTINGS["ps5_ftp_port"], SETTINGS["ps5_ftp_user"], SETTINGS["ps5_ftp_pass"], timeout=10)
+        try:
+            d = SETTINGS["ps5_backport_dir"]
+            if f.isdir(d):
+                names = [n for n, isd in f.listdir(d) if isd and not n.startswith(".")]
+                res["ftp"] = {"ok": True, "detail": f"{d}: {len(names)} Backport(s)" + (f" – {', '.join(sorted(names)[:12])}" if names else "")}
+            else:
+                res["ftp"] = {"ok": True, "detail": f"verbunden · {d} existiert noch nicht (wird beim ersten Upload angelegt)"}
+        finally:
+            f.close()
+    except Exception as e:
+        res["ftp"] = {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+    try:
+        code, v = bp.smp_call(host, SETTINGS["ps5_api_port"], "/api/v1/version", timeout=5)
+        res["api"] = ({"ok": True, "detail": f"ShadowMountPlus {v.get('shadowmount_version', '?')} · API v{v.get('api_version', '?')}"}
+                      if code == 200 else {"ok": False, "detail": f"HTTP {code} {v.get('error', '')}"})
+    except Exception as e:
+        res["api"] = {"ok": False, "detail": f"{type(e).__name__}: {e} – nur für die optionale Prüfung nötig "
+                                            "(api_bind_address=0.0.0.0 in /data/shadowmount/config.ini)"}
+    LOG.info("ps5 test: ftp=%s api=%s", res["ftp"]["ok"], res["api"]["ok"])
+    return res
+
+
 def list_dir(path):
     if not path:
         items = []
@@ -1995,6 +2280,13 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, list_dir(q.get("path", "")))
             if u.path == "/api/probe":
                 return self.send(200, probe(q.get("path", ""), fixes=q.get("fixes") == "1"))
+            if u.path == "/api/backport/list":
+                fixdir = SETTINGS.get("watch_fix_dir")
+                try:
+                    fixdir = safe_path(fixdir, must_exist=False) if fixdir else None
+                except JobError:
+                    fixdir = None
+                return self.send(200, {"dir": fixdir, "items": list_fixes(fixdir)[:40] if fixdir else []})
             if u.path == "/api/free":
                 return self.send(200, disk(safe_path(q.get("path", ""), must_exist=False)))
             if u.path == "/api/jobs":
@@ -2071,6 +2363,32 @@ class H(BaseHTTPRequestHandler):
                 if params["delete_archive"] and classify(params["source"])[0] != "archive":
                     params["delete_archive"] = False
                 return self.send(200, enqueue(params).public())
+            if u.path == "/api/backport":
+                b = self.body()
+                src = safe_path((b.get("source") or "").strip())
+                if not os.path.isdir(src) and lower_ext(src) not in ARCHIVES:
+                    raise JobError("Backport als Archiv (zip/rar/7z) oder Ordner wählen")
+                tid = (b.get("title_id") or "").strip().upper()
+                if tid and not re.fullmatch(r"(PPSA|PPSB|CUSA)\d{5}", tid):
+                    raise JobError(f"Title-ID ungültig: {tid}")
+                if not SETTINGS["ps5_host"]:
+                    raise JobError("PS5-Adresse fehlt – unter Einstellungen → PS5 / ShadowMountPlus eintragen")
+                params = {
+                    "type": "backport", "source": src, "fix": None, "title_id": tid or None,
+                    "variant": b.get("variant") if isinstance(b.get("variant"), str) else None,
+                    "version": (b.get("version") or "").strip()[:40] or None,
+                    "check_installed": bool(b.get("check_installed")) or bool(b.get("check_version")),
+                    "check_version": bool(b.get("check_version")),
+                    "password": (b.get("password") or "")[:500],
+                    "out": safe_path(DEF_OUT, must_exist=False), "work": safe_path(DEF_WORK, must_exist=False),
+                    "cleanup": True, "origin": "manual",
+                }
+                return self.send(200, enqueue(params).public())
+            if u.path == "/api/backport/probe":
+                b = self.body()
+                return self.send(200, backport_probe((b.get("path") or "").strip(), (b.get("password") or "")[:500]))
+            if u.path == "/api/ps5/test":
+                return self.send(200, ps5_test())
             m = re.match(r"^/api/jobs/([\w-]+)/retry$", u.path)
             if m and m.group(1) in JOBS:
                 old = JOBS[m.group(1)].params
@@ -2178,6 +2496,7 @@ def main():
     load_jobs()
     threading.Thread(target=prep_worker, daemon=True, name="prep").start()
     threading.Thread(target=build_worker, daemon=True, name="build").start()
+    threading.Thread(target=backport_worker, daemon=True, name="backport").start()
     threading.Thread(target=watcher, daemon=True, name="watch").start()
     ThreadingHTTPServer(("0.0.0.0", PORT), H).serve_forever()
 

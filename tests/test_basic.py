@@ -252,6 +252,132 @@ def test_fix_suggestions():
     server.archive_encryption, server.roots = old
 
 
+class FakeFtp:
+    """In-memory stand-in for backport.Ftp, backed by a local directory (= PS5 root)."""
+    root = None
+    renames = []
+
+    def __init__(self, *a, **k):
+        pass
+
+    def _p(self, path):
+        return os.path.join(FakeFtp.root, path.lstrip("/"))
+
+    def close(self):
+        pass
+
+    def isdir(self, path):
+        return os.path.isdir(self._p(path))
+
+    def makedirs(self, path):
+        os.makedirs(self._p(path), exist_ok=True)
+
+    def listdir(self, path):
+        return [(n, os.path.isdir(os.path.join(self._p(path), n))) for n in os.listdir(self._p(path))]
+
+    def rmtree(self, path):
+        shutil.rmtree(self._p(path))
+
+    def rename(self, a, b):
+        FakeFtp.renames.append((a, b))
+        os.rename(self._p(a), self._p(b))
+
+    def size(self, path):
+        return os.path.getsize(self._p(path))
+
+    def upload(self, local, remote, cb=None):
+        shutil.copyfile(local, self._p(remote))
+        if cb:
+            cb(b"x" * os.path.getsize(local))
+
+
+def test_backport():
+    bp = server.bp
+    n = bp.name_info("[DLPSGAME.COM]-FW_4xx_PPSA09663_Dragon's_Dogma_2_04_000_000_backport_files.zip")
+    check("bp: name title id", n["title_id"] == "PPSA09663")
+    check("bp: name version", n["version"] == "04.000.000")
+    check("bp: name fw", n["fw"] == "4.xx")
+    check("bp: fw 403", bp.name_info("FW_403_PPSA34547_CONTROL.zip")["fw"] == "4.xx")
+    check("bp: version v1.05", bp.name_info("PPSA01234 v1.05 backport.7z")["version"] == "1.05")
+    check("bp: roots top level", bp.find_roots(["eboot.bin", "fakelib/a.sprx", "sce_module/libc.prx"]) == [""])
+    check("bp: roots wrapped", bp.find_roots(["Game/eboot.bin", "Game/fakelib/a.sprx", "readme.txt"]) == ["Game"])
+    check("bp: roots variants", bp.find_roots(["4.xx/eboot.bin", "4.xx/fakelib/a", "5.xx-7.xx/eboot.bin"])
+          == ["4.xx", "5.xx-7.xx"])
+    check("bp: roots no marker unwraps", bp.find_roots(["X/Y/a.bin", "X/Y/b.bin"]) == ["X/Y"])
+    check("bp: nested root dropped", bp.find_roots(["eboot.bin", "fakelib/sce_sys/x"]) == [""])
+    check("bp: junk ignored", bp.find_roots(["__MACOSX/G/eboot.bin", "G/eboot.bin"]) == ["G"])
+    check("bp: same version", bp.same_version("04.000.000", "04.000.000") and bp.same_version("4.0", "04.000.000"))
+    check("bp: other version", bp.same_version("04.000.000", "04.001.000") is False)
+    check("bp: unknown version", bp.same_version("", "1.0") is None)
+    notes = bp.check_files(["eboot.bin", "fakelib/libSceAmpr.sprx"] + [f"f{i}" for i in range(300)])
+    check("bp: notes limit + ampr", any("256" in x for x in notes) and any("libSceAmpr" in x for x in notes))
+    lst = ("Path = /x/a.zip\nType = zip\n\n----------\nPath = G/eboot.bin\nFolder = -\nSize = 10\n\n"
+           "Path = G\nFolder = +\nSize = 0\n\nPath = G\\fakelib\\b.sprx\nFolder = -\nSize = 5\n")
+    check("bp: slt entries", [(p_, s_) for p_, s_, d in bp.slt_entries(lst) if not d]
+          == [("G/eboot.bin", 10), ("G/fakelib/b.sprx", 5)])
+
+    # full job with fake FTP + fake ShadowMountPlus API
+    base = tempfile.mkdtemp()
+    os.makedirs(os.path.join(base, "logs", "jobs"), exist_ok=True)
+    server.DATA = base
+    src = os.path.join(base, "[DLPSGAME.COM]-FW_4xx_PPSA09663_DD2_04_000_000_backport")
+    os.makedirs(os.path.join(src, "Dragon", "fakelib"))
+    os.makedirs(os.path.join(src, "Dragon", "sce_module"))
+    for f, data in (("Dragon/eboot.bin", b"E" * 100), ("Dragon/fakelib/libSceAmpr.sprx", b"A"),
+                    ("Dragon/sce_module/libc.prx", b"L" * 7), ("readme.txt", b"r")):
+        open(os.path.join(src, f), "wb").write(data)
+    ps5 = tempfile.mkdtemp()
+    FakeFtp.root = ps5
+    os.makedirs(os.path.join(ps5, "data/homebrew/backports/PPSA09663"))
+    open(os.path.join(ps5, "data/homebrew/backports/PPSA09663/old.bin"), "w").write("old")
+    old = bp.Ftp, bp.smp_game
+    bp.Ftp = FakeFtp
+    server.SETTINGS.update(ps5_host="10.0.0.5")
+
+    def job(**kw):
+        params = {"type": "backport", "source": src, "work": base, "out": base, "cleanup": True}
+        params.update(kw)
+        j = server.Job(params)
+        try:
+            j.run_backport()
+            return j, None
+        except server.JobError as e:
+            return j, e
+
+    bp.smp_game = lambda h, p, t: {"title_id": t, "version": "04.000.000", "title_name": "DD2", "platform": "ps5",
+                                   "source_type": "pkg", "fakelib_effective_enabled": True}
+    j, err = job(check_installed=True, check_version=True)
+    tgt = os.path.join(ps5, "data/homebrew/backports/PPSA09663")
+    check("bp job: no error", err is None)
+    check("bp job: files at target root", sorted(server.rel_files(tgt))
+          == ["eboot.bin", "fakelib/libSceAmpr.sprx", "sce_module/libc.prx"])
+    check("bp job: readme outside root not uploaded", not os.path.exists(os.path.join(tgt, "readme.txt")))
+    baks = os.listdir(os.path.join(ps5, "data/backport-backups"))
+    check("bp job: old backport moved to backup", len(baks) == 1 and baks[0].startswith("PPSA09663-")
+          and os.path.exists(os.path.join(ps5, "data/backport-backups", baks[0], "old.bin")))
+    check("bp job: result", j.result["files"] == 3 and j.result["backup"] and j.result["title_id"] == "PPSA09663")
+    check("bp job: ampr warning", any("libSceAmpr" in w for w in j.warnings))
+    check("bp job: no temp dir left", [x for x in os.listdir(os.path.dirname(tgt)) if x.startswith(".")] == [])
+    check("bp job: work dir removed", not os.path.exists(j.work))
+
+    bp.smp_game = lambda h, p, t: {"title_id": t, "version": "03.000.000", "platform": "ps5"}
+    j, err = job(check_installed=True, check_version=True)
+    check("bp job: version mismatch aborts", err is not None and "Version passt nicht" in str(err))
+    bp.smp_game = lambda h, p, t: None
+    j, err = job(check_installed=True)
+    check("bp job: not installed aborts", err is not None and "nicht installiert" in str(err))
+    j, err = job()
+    check("bp job: without checks uploads anyway", err is None and len(os.listdir(os.path.join(ps5, "data/backport-backups"))) == 2)
+
+    os.makedirs(os.path.join(src, "Other"))
+    open(os.path.join(src, "Other", "eboot.bin"), "w").write("o")
+    j, err = job()
+    check("bp job: several variants need a choice", err is not None and "Varianten" in str(err))
+    j, err = job(variant="Other")
+    check("bp job: chosen variant uploaded", err is None and server.rel_files(tgt) == ["eboot.bin"])
+    bp.Ftp, bp.smp_game = old
+
+
 if __name__ == "__main__":
     test_volumes()
     test_old_rar_naming()
@@ -260,6 +386,7 @@ if __name__ == "__main__":
     test_checksums()
     test_nested_archives()
     test_fix_suggestions()
+    test_backport()
     test_exfat()
     print(f"\n{len(FAILS)} Fehler" if FAILS else "\nalle Tests ok")
     sys.exit(1 if FAILS else 0)

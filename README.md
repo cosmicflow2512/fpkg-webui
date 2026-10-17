@@ -18,6 +18,11 @@ Ausführliches Handbuch mit allen Funktionen, Abläufen, Fehlerbildern und dem A
 - **Fix/Backport:** Archiv oder Ordner wird 1:1 über den App-Ordner gelegt. Vorher zeigt die
   Oberfläche, welche Dateien ersetzt werden und welche neu sind. Nach dem Bau wird geprüft, ob
   alle Fix-Dateien im Paket gelandet sind.
+- **Backport → PS5:** Backport-Archiv oder -Ordner wählen, die WebUI kopiert es per FTP nach
+  `/data/homebrew/backports/<TITLE_ID>` auf die PS5. [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus)
+  legt es beim Spielstart über das Spiel (ab 1.7beta2 auch über installierte PKGs) – kein neues FPKG nötig.
+  Title-ID/Version aus dem Namen, Varianten-Auswahl, altes Backport wird auf der PS5 gesichert,
+  optional Prüfung „installiert?“/„Version passt?“ über die ShadowMountPlus-API.
 - **exFAT + Fix ohne Mount:** eigener exFAT-Leser (reines Python, auch MBR/GPT-Images),
   der Container braucht keine Privilegien.
 - **Fortschritt:** Schritt-Leiste und Balken mit Restzeit für Entpacken, Kopieren und Bauen.

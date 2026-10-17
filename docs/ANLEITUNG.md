@@ -209,6 +209,40 @@ laufen ohne Eingabekanal, Rückfragen von 7-Zip können nichts aufhalten.
 als Quelle ergibt ein winziges Paket mit derselben Content-ID wie das Spiel. Auf der Konsole würde es
 das Spiel ersetzen statt ergänzen. Separate Update-Pakete gehen nicht, siehe [Grenzen](#14-grenzen).
 
+### Backport → PS5 (ShadowMountPlus)
+
+Statt den Backport ins Paket zu bauen, kann er direkt auf die PS5 kopiert werden (Umschalter
+„Backport → PS5“ oben im Formular). ShadowMountPlus legt `<Scanpfad>/backports/<TITLE_ID>/` und als
+Fallback `/data/homebrew/backports/<TITLE_ID>/` beim Spielstart über das Spiel; für installierte PKGs
+über NSFS-Redirects ab 1.7beta2 (Quelle: [ShadowMountPlus README, „Backport overlay behavior“](https://github.com/drakmor/ShadowMountPlus)).
+
+Ablauf eines Auftrags:
+
+1. **Backport entpacken** (nur Archiv) in den Arbeitsordner, Passwörter wie beim FPKG-Auftrag.
+2. **Backport prüfen:** Wurzel = Ordner mit `eboot.bin`, `sce_sys/`, `sce_module/` oder `fakelib/`.
+   Hüllordner, Readmes und `__MACOSX` werden nicht kopiert. Mehrere Wurzeln (z. B. je Firmware ein
+   Ordner) = Varianten, eine muss im Formular gewählt werden. Title-ID aus Feld, Name, Pfaden oder
+   `sce_sys/param.json`.
+3. **PS5 prüfen** (optional): `POST /api/v1/games` der ShadowMountPlus-API, Title-ID muss in der Liste
+   sein; mit „Version passt“ wird `version` (CONTENT_VERSION) mit der Version aus dem Formular verglichen.
+   Dafür muss auf der PS5 `api_bind_address=0.0.0.0` gesetzt sein (Standard ist `127.0.0.1`).
+4. **Hochladen** per FTP nach `<Backport-Ordner>/.<TITLE_ID>.upload-<Job>`, Größen per `SIZE` prüfen,
+   vorhandenes `<Backport-Ordner>/<TITLE_ID>` nach `<Sicherungsordner>/<TITLE_ID>-<Zeit>-<Job>` verschieben,
+   dann den Temp-Ordner umbenennen. Bei Fehler/Abbruch wird nur der Temp-Ordner entfernt.
+5. **Aufräumen:** Arbeitsordner wird immer gelöscht, das Archiv bleibt.
+
+Zurück zum Original: den Ordner `<Backport-Ordner>/<TITLE_ID>` per FTP löschen (oder die Sicherung
+zurückschieben).
+
+Hinweise, die der Auftrag ausgibt:
+- mehr als 256 Dateien: ShadowMountPlus unterstützt bei installierten PKGs bis zu 256 Redirect-Einträge pro Sandbox
+- `libSceAmpr.sprx`, `libScePlayGo.sprx`, `libkernel.sprx` in `fakelib/`: löscht ShadowMountPlus bei installierten PPR-PKGs vor dem Mount
+- fakelib für den Titel in ShadowMountPlus deaktiviert (nur mit PS5-Prüfung sichtbar)
+- den Standalone-Payload BackPork nicht parallel zu den ShadowMountPlus-Backports laufen lassen (laut ShadowMountPlus-Release 1.7beta2)
+
+FTP-Port und Anmeldung hängen vom FTP-Payload auf der PS5 ab (Einstellungen → PS5 / ShadowMountPlus,
+Standard 2121, Benutzer leer = anonymous). „Verbindung testen“ prüft FTP und API.
+
 ---
 
 ## 7. Kompression
@@ -481,6 +515,10 @@ Alle Antworten JSON, Fehler als `{"error": "…"}` mit HTTP 4xx/5xx.
 | GET | `/api/watch` | Watch-Status und -Liste |
 | POST | `/api/watch/scan` | sofort scannen |
 | POST | `/api/watch/forget` | Eintrag erneut verarbeiten (`key`) |
+| POST | `/api/backport/probe` | Backport erkennen (`path`, `password`): Title-ID, Version, FW, Varianten mit Dateien |
+| GET | `/api/backport/list` | Einträge im Fix-Ordner als Backport-Vorschläge |
+| POST | `/api/backport` | Backport-Auftrag (`source`, `title_id`, `version`, `variant`, `check_installed`, `check_version`, `password`) |
+| POST | `/api/ps5/test` | FTP- und ShadowMountPlus-API-Verbindung testen |
 | GET | `/api/diag` | Diagnose-Übersicht |
 | GET | `/api/diag/selftest` | Selbsttest |
 | GET | `/api/diag/log?lines=` | Server-Log |
