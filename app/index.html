@@ -297,6 +297,8 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       <div class="row"><input id="s-watch_dir" type="text"><button data-pick="s-watch_dir" data-dir="1">…</button></div>
       <label class="f">Fix-Ordner <span style="font-weight:400;color:var(--muted)">(Fixes und Backports; Zuordnung über die Title-ID im Namen, z. B. „PPSA11386 PSSR Fix.zip“ – gilt für Watch-Ordner und die Vorschläge im Formular)</span></label>
       <div class="row"><input id="s-watch_fix_dir" type="text"><button data-pick="s-watch_fix_dir" data-dir="1">…</button></div>
+      <label class="f">Weitere Fix-/Backport-Ordner <span style="font-weight:400;color:var(--muted)">(einer pro Zeile; erscheinen in den Vorschlägen bei „FPKG bauen“ und „Backport → PS5“ und gelten für den Watch-Ordner)</span></label>
+      <textarea id="s-extra_fix_dirs" rows="3" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--text);font:13px var(--mono)" placeholder="/shares/NZB/ps5-backport/zip"></textarea>
       <div class="grid">
         <div><label class="f">Stillstand vor Start (s)</label><input id="s-watch_stable" type="text"></div>
         <div><label class="f">Prüfintervall (s)</label><input id="s-watch_interval" type="text"></div>
@@ -453,8 +455,7 @@ $('#pkg_name-clear').onclick = () => { $('#pkg_name').value=''; saveForm(); name
 // Fixes/backports from the fix folder (Settings → Fix-Ordner): matching title ID first, else all of them
 function fixSuggest(r){
   const box = $('#fix-sug'); box.innerHTML='';
-  if (!r.fix_dir){ box.textContent='Fix-Ordner unter Einstellungen festlegen, dann werden passende Fixes hier vorgeschlagen.'; return; }
-  if (!r.fix_dir_exists){ box.textContent=`Fix-Ordner ${r.fix_dir} gibt es noch nicht – dort Fixes/Backports ablegen (Title-ID im Namen).`; return; }
+  if (!r.fix_dir_exists){ box.textContent = r.fix_dir ? `Fix-Ordner ${r.fix_dir} gibt es noch nicht – dort Fixes/Backports ablegen (Title-ID im Namen) oder unter Einstellungen weitere Ordner eintragen.` : 'Fix-Ordner unter Einstellungen festlegen, dann werden passende Fixes hier vorgeschlagen.'; return; }
   const fx = r.fixes||[], hit = fx.filter(f=>f.match);
   if (!fx.length) return;
   const lab = document.createElement('span');
@@ -731,7 +732,7 @@ $('#g-selftest').onclick = async () => {
 };
 
 // ---------- settings
-const SKEYS = ['archive_passwords','overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','watch_stable','watch_interval','watch_preset','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting','ps5_host','ps5_ftp_port','ps5_ftp_user','ps5_ftp_pass','ps5_api_port','ps5_backport_dir','ps5_backup_dir','ps5_retry','ps5_retry_minutes','ps5_retry_hours'];
+const SKEYS = ['archive_passwords','overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','extra_fix_dirs','watch_stable','watch_interval','watch_preset','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting','ps5_host','ps5_ftp_port','ps5_ftp_user','ps5_ftp_pass','ps5_api_port','ps5_backport_dir','ps5_backup_dir','ps5_retry','ps5_retry_minutes','ps5_retry_hours'];
 async function loadSettings(){
   try{ const s = await api('/api/settings'); const L=s.locked||[]; SKEYS.forEach(k=>{ const e=$('#s-'+k); if(!e) return; if(e.type==='checkbox') e.checked=!!s[k]; else e.value=s[k]??''; e.disabled=L.includes(k); if(L.includes(k)) e.title='aus dem Unraid-Template (Umgebungsvariable)'; }); $('#s-envhint').textContent = L.length ? 'Gesperrte Felder kommen aus dem Unraid-Template: '+L.map(k=>({pushover_user:'PUSHOVER_USER',pushover_token:'PUSHOVER_TOKEN',webui_url:'WEBUI_URL'})[k]).join(', ') : ''; }catch(e){ $('#s-msg').textContent=e.message; }
   loadWatch();
@@ -803,9 +804,9 @@ function bpTarget(){ const t=$('#bp-tid').value.trim().toUpperCase()||'<TITLE_ID
   h.className='hint'; h.textContent=`Ziel: ${BPS.ps5_host} · FTP ${BPS.ps5_ftp_port} · ${BPS.ps5_backport_dir}/${t}`; }
 async function bpList(){
   const box=$('#bp-sug'); let r; try{ r=await api('/api/backport/list'); }catch(e){ return; }
-  box.innerHTML=''; if(!r.items.length){ if(r.dir) box.textContent=`Fix-Ordner ${r.dir} ist leer`; return; }
-  const lab=document.createElement('span'); lab.textContent='Aus dem Fix-Ordner:'; box.appendChild(lab);
-  const add=f=>{ const b=document.createElement('button'); b.type='button'; if($('#bp-src').value===f.path) b.className='match'; b.textContent=f.name+(f.size!=null?' · '+human(f.size):''); b.title=f.path; b.onclick=()=>{ $('#bp-src').value=f.path; bpSave(); bpProbe(); bpList(); }; box.appendChild(b); };
+  box.innerHTML=''; if(!r.items.length){ box.textContent = (r.dirs&&r.dirs.length) ? `Keine Archive in ${r.dirs.join(', ')}` : 'Fix-/Backport-Ordner unter Einstellungen festlegen'; return; }
+  const lab=document.createElement('span'); lab.textContent='Aus den Fix-/Backport-Ordnern:'; box.appendChild(lab);
+  const add=f=>{ const b=document.createElement('button'); b.type='button'; if($('#bp-src').value===f.path) b.className='match'; b.textContent=f.name+(f.size!=null?' · '+human(f.size):''); b.title=f.path+'\n'+new Date(f.mtime*1000).toLocaleString('de-DE'); b.onclick=()=>{ $('#bp-src').value=f.path; bpSave(); bpProbe(); bpList(); }; box.appendChild(b); };
   r.items.slice(0,6).forEach(add);
   if (r.items.length>6){ const m=document.createElement('button'); m.type='button'; m.className='all'; m.textContent=`${r.items.length-6} weitere zeigen`; m.onclick=()=>{ m.remove(); r.items.slice(6).forEach(add); }; box.appendChild(m); }
 }

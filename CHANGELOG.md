@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.4.1 – 2026-10-17
+- Weitere Fix-/Backport-Ordner (Einstellungen → Watch-Ordner, einer pro Zeile), Standard `/shares/NZB/ps5-backport/zip` (Zip-Ausgabe des PS5-Backport-Containers). Sie erscheinen zusammen mit dem Fix-Ordner in den Vorschlägen bei „FPKG bauen“ und „Backport → PS5“ und gelten für die automatische Fix-Zuordnung im Watch-Ordner. Nicht vorhandene Ordner werden ignoriert
+
 ## 1.4.0 – 2026-10-17
 - Neuer Modus „Entpacken“: Archiv (auch mehrteilig, verschachtelt wie DUPLEX, mit Passwort), `.exfat`-Image oder FPKG (`.pkg`) nur entpacken, ohne zu bauen. Ergebnis ist ein App-Ordner `<Zielordner>/<TITLE_ID>` (Ordnername frei wählbar), Standard-Ziel `<Ausgabe>/../dumps` bzw. `DEFAULT_EXTRACT`. Entpackt wird direkt im Zielordner, am Ende nur umbenannt; optional Prüfsumme und Quellarchiv danach löschen. Der Ordner taugt als Quelle für spätere Builds und als Ordner-Dump für ShadowMountPlus
 - Paketname sichtbar und änderbar: Das Formular zeigt, wie das Paket heißen wird (`<Content-ID>-A…-V…[-backport|-fix].pkg`, bei Ordnern/Images schon vor dem Start, bei Archiven nach dem Entpacken), optional eigener Name. Im Auftrag steht der Name nach „Quelle prüfen“ und lässt sich bis zum Start des Builds ändern (mit „Vor dem Bauen anhalten“ auch bei Archiven)

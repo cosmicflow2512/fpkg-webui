@@ -249,6 +249,17 @@ def test_fix_suggestions():
     r = server.probe(os.path.join(src, "STAR.WARS.Galactic.Racer.PS5-DUPLEX.part001.rar"), fixes=True)
     check("probe: title ID from listing", r["title_id"] == "PPSA28416")
     check("probe: matching fix suggested", r["fixes"][0]["name"] == "PPSA28416 DLC Unlocker" and r["fix_dir_exists"])
+    # extra fix/backport folders: merged, matching first, duplicates (same file seen twice) once
+    extra = os.path.join(root, "ps5-backport", "zip")
+    os.makedirs(extra)
+    touch(extra, "PPSA28416_Backport_FW4.zip", "PPSA00002 x.zip")
+    server.SETTINGS["extra_fix_dirs"] = extra + "\n" + extra + "\n/nicht/da"
+    check("fixdirs: existing, deduplicated", server.fix_dirs() == [os.path.realpath(fixdir), os.path.realpath(extra)])
+    r = server.probe(os.path.join(src, "STAR.WARS.Galactic.Racer.PS5-DUPLEX.part001.rar"), fixes=True)
+    names = [f["name"] for f in r["fixes"]]
+    check("fixdirs: matches from both folders first", set(names[:2]) == {"PPSA28416 DLC Unlocker", "PPSA28416_Backport_FW4.zip"})
+    check("fixdirs: other folder listed", "PPSA00002 x.zip" in names)
+    server.SETTINGS["extra_fix_dirs"] = ""
     server.archive_encryption, server.roots = old
 
 

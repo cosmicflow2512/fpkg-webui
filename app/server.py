@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import backport as bp
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.1"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -337,6 +337,8 @@ DEFAULT_SETTINGS = {
     "watch_enabled": False,
     "watch_dir": "/shares/NZB/fpkg-inbox",
     "watch_fix_dir": "/shares/NZB/fpkg-fixes",
+    # more folders with fixes/backports (one per line), e.g. the zip output of the PS5 Backport GUI container
+    "extra_fix_dirs": "/shares/NZB/ps5-backport/zip",
     "watch_stable": 120,
     "watch_interval": 30,
     "watch_preset": "standard",
@@ -434,6 +436,8 @@ def update_settings(b):
             v = str(v or "").strip()
         if k in ("watch_dir", "watch_fix_dir") and v:
             v = safe_path(v, must_exist=False)
+        if k == "extra_fix_dirs":
+            v = "\n".join(safe_path(x.strip(), must_exist=False) for x in v.splitlines() if x.strip())
         if k in ("ps5_backport_dir", "ps5_backup_dir"):
             v = "/" + v.strip("/") if v.strip("/") else DEFAULT_SETTINGS[k]
         if k == "ps5_host" and v and not re.match(r"^[A-Za-z0-9.\-:\[\]]+$", v):
@@ -678,8 +682,35 @@ def title_id_for(path, kind, real):
         return None
 
 
+def fix_dirs():
+    """Fix folder + extra folders (settings), resolved, existing ones only, no duplicates."""
+    out = []
+    for d in [SETTINGS.get("watch_fix_dir") or ""] + (SETTINGS.get("extra_fix_dirs") or "").splitlines():
+        d = d.strip()
+        if not d:
+            continue
+        try:
+            rd = safe_path(d, must_exist=False)
+        except JobError:
+            continue
+        if os.path.isdir(rd) and rd not in out:
+            out.append(rd)
+    return out
+
+
 def list_fixes(fixdir, tid=None):
-    """Fix candidates in fixdir (folders and first volumes of archives), matching title ID first, then newest."""
+    """Fix candidates (folders and first volumes of archives) in one folder or a list of folders,
+    matching title ID first, then newest."""
+    if isinstance(fixdir, (list, tuple)):
+        out, seen = [], set()
+        for d in fixdir:
+            for f in list_fixes(d, tid):
+                key = (f["name"], f["size"], int(f["mtime"]))
+                if key not in seen:
+                    seen.add(key)
+                    out.append(f)
+        out.sort(key=lambda f: (not f["match"], -f["mtime"]))
+        return out
     if not (fixdir and os.path.isdir(fixdir)):
         return []
     out = []
@@ -759,7 +790,7 @@ def watch_scan():
                 LOG.info("watch: ignored %s (%s)", key, e)
                 continue
             tid = title_id_for(key, kind, real)
-            fix = find_fix(fixdir, tid)
+            fix = find_fix(fix_dirs() or fixdir, tid)
             params = {
                 "source": key, "fix": fix, "out": safe_path(DEF_OUT, must_exist=False),
                 "work": safe_path(DEF_WORK, must_exist=False), "preset": SETTINGS["watch_preset"],
@@ -2420,8 +2451,10 @@ def probe(path, fixes=False):
         except JobError:
             fixdir = None
         info["fix_dir"] = fixdir
-        info["fix_dir_exists"] = bool(fixdir and os.path.isdir(fixdir))
-        info["fixes"] = list_fixes(fixdir, info["title_id"])[:20] if fixdir else []
+        dirs = fix_dirs()
+        info["fix_dir_exists"] = bool(dirs)
+        info["fix_dirs"] = dirs
+        info["fixes"] = list_fixes(dirs, info["title_id"])[:20]
     return info
 
 
@@ -2571,7 +2604,8 @@ class H(BaseHTTPRequestHandler):
                     fixdir = safe_path(fixdir, must_exist=False) if fixdir else None
                 except JobError:
                     fixdir = None
-                return self.send(200, {"dir": fixdir, "items": list_fixes(fixdir)[:40] if fixdir else []})
+                dirs = fix_dirs()
+                return self.send(200, {"dir": fixdir, "dirs": dirs, "items": list_fixes(dirs)[:60]})
             if u.path == "/api/free":
                 return self.send(200, disk(safe_path(q.get("path", ""), must_exist=False)))
             if u.path == "/api/jobs":
