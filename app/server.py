@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import backport as bp
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.3.3"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -939,6 +939,49 @@ PUBLIC = ("id", "created", "status", "step", "prog", "plan", "params", "result",
 ACTIVE = ("queued", "running", "waiting", "ready", "retry")
 
 
+def twin_dirs(d):
+    """d plus the same relative folder under every other root. On Unraid a pool path (/mnt/<pool>/share) and the
+    user share (/mnt/user/share) are the same folder, but files the mover put on the array only show up in the
+    user share - a name check in the pool path alone misses them and the new package silently gets the same name."""
+    rd = os.path.realpath(d)
+    out = [rd]
+    r0 = root_of(rd)
+    if not r0:
+        return out
+    rel = os.path.relpath(rd, r0)
+    if rel == ".":
+        return out
+    for r in roots():
+        t = os.path.join(r, rel)
+        if r != r0 and os.path.isdir(t) and os.path.realpath(t) not in out:
+            out.append(os.path.realpath(t))
+    return out
+
+
+def unique_pkg_name(out_dir, name, fix=None, job=None):
+    """fpkg-cli names packages after content ID + version only, so the same game built twice (with/without
+    fix, other preset) collides. Builds with a fix get -fix/-backport, an existing name gets -<date-time>."""
+    base, ext = os.path.splitext(name)
+    if fix:
+        base += "-backport" if "backport" in os.path.basename(fix.rstrip("/")).lower() else "-fix"
+    dirs = twin_dirs(out_dir)
+
+    def taken(n):
+        return any(os.path.exists(os.path.join(x, n)) for x in dirs)
+    cand = base + ext
+    if taken(cand):
+        stamp = time.strftime("%Y%m%d-%H%M")
+        cand = f"{base}-{stamp}{ext}"
+        i = 2
+        while taken(cand):
+            cand = f"{base}-{stamp}-{i}{ext}"
+            i += 1
+        if job:
+            hit = next(x for x in dirs if os.path.exists(os.path.join(x, base + ext)))
+            job.warn(f"{base + ext} gibt es schon ({hit}) – neues Paket heißt {cand}")
+    return cand
+
+
 class Job:
     def __init__(self, params):
         self.id = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
@@ -1338,11 +1381,7 @@ class Job:
             if not pkgs:
                 raise JobError("Build lief durch, aber kein .pkg gefunden")
             name = pkgs[0]
-            final = os.path.join(p["out"], name)
-            if os.path.exists(final):
-                base, ext = os.path.splitext(name)
-                final = os.path.join(p["out"], f"{base}-{self.id}{ext}")
-                self.warn(f"{name} existierte schon – neues Paket heißt {os.path.basename(final)}")
+            final = os.path.join(p["out"], unique_pkg_name(p["out"], name, p.get("fix"), self))
             os.rename(os.path.join(stage, name), final)
         finally:
             shutil.rmtree(stage, ignore_errors=True)

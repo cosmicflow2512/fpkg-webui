@@ -415,6 +415,29 @@ def test_backport():
     bp.Ftp, bp.smp_game = old
 
 
+
+def test_pkg_names():
+    base = tempfile.mkdtemp()
+    pool, user = os.path.join(base, "output"), os.path.join(base, "shares", "NZB")
+    for d in (os.path.join(pool, "ps5-fpkg", "out"), os.path.join(user, "ps5-fpkg", "out")):
+        os.makedirs(d)
+    old = server.roots
+    server.roots = lambda: [os.path.realpath(user), os.path.realpath(pool)]
+    out = os.path.join(pool, "ps5-fpkg", "out")
+    n = "UP0102-PPSA09663_00-DD2GAME000000000-A0400-V0400.pkg"
+    check("pkgname: free name kept", server.unique_pkg_name(out, n) == n)
+    check("pkgname: backport suffix", server.unique_pkg_name(out, n, "/x/[DLPSGAME.COM]-FW_4xx_PPSA09663_backport_files.zip")
+          == n.replace(".pkg", "-backport.pkg"))
+    check("pkgname: fix suffix", server.unique_pkg_name(out, n, "/x/PPSA09663 Fix.7z") == n.replace(".pkg", "-fix.pkg"))
+    open(os.path.join(user, "ps5-fpkg", "out", n), "w").close()  # moved to the array: only visible in the user share
+    r = server.unique_pkg_name(out, n)
+    check("pkgname: collision seen via twin dir", r != n and r.startswith(n[:-4] + "-20") and r.endswith(".pkg"))
+    open(os.path.join(out, r), "w").close()
+    r2 = server.unique_pkg_name(out, n)
+    check("pkgname: second collision numbered", r2 not in (n, r) and r2.endswith("-2.pkg"))
+    server.roots = old
+
+
 if __name__ == "__main__":
     test_volumes()
     test_old_rar_naming()
@@ -424,6 +447,7 @@ if __name__ == "__main__":
     test_nested_archives()
     test_fix_suggestions()
     test_backport()
+    test_pkg_names()
     test_exfat()
     print(f"\n{len(FAILS)} Fehler" if FAILS else "\nalle Tests ok")
     sys.exit(1 if FAILS else 0)

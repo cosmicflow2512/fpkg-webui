@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.3 – 2026-10-17
+- Gleiches Spiel mehrfach bauen überschreibt nichts mehr: fpkg-cli benennt Pakete nur nach Content-ID und Version. Builds mit Fix heißen jetzt `…-V0400-backport.pkg` (Fix-Name enthält „backport“) bzw. `…-V0400-fix.pkg`; gibt es den Namen schon, wird `-JJJJMMTT-HHMM` angehängt (bei Bedarf `-2`, `-3` …) und im Auftrag gewarnt
+- Die Namensprüfung sieht auch Pakete, die der Unraid-Mover vom Pool aufs Array verschoben hat: Liegt die Ausgabe auf einem Pool-Pfad (z. B. `/output` = `/mnt/<pool>/NZB`), wird derselbe Unterordner in den anderen freigegebenen Ordnern (z. B. `/shares/NZB` = `/mnt/user/NZB`) mitgeprüft. Bisher sah der Container dort nur den Pool und gab dem zweiten Build denselben Namen
+
 ## 1.3.2 – 2026-10-17
 - Backport → PS5 mit ps5-payload-dev/ftpsrv: Der Server wandelt SELF-Dateien beim Lesen in ELF um (pro Verbindung, standardmäßig an) und meldet bei `SIZE` die entschlüsselte Größe – die Größenprüfung schlug deshalb bei `eboot.bin`, `*.sprx` und `*.prx` fehl, obwohl richtig hochgeladen wurde. Die WebUI schaltet das jetzt nach der Anmeldung mit `SITE SELF` ab
 - Ordner auflisten/löschen auf der PS5 repariert: ftpsrv kennt kein `OPTS`/`NLST`, `MLSD` listet immer den aktuellen Ordner und `DELE` antwortet mit 226 – halbe Uploads blieben deshalb liegen („502 Command not recognized“), der Verbindungstest zählte die falschen Ordner
