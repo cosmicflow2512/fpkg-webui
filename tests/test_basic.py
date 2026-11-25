@@ -457,6 +457,35 @@ def test_pkg_names():
     check("clean_name: empty", server.clean_name("  ", ".pkg") == "")
 
 
+def test_build_method():
+    d = tempfile.mkdtemp()
+    try:
+        app = os.path.join(d, "app")
+        os.makedirs(os.path.join(app, "sce_sys"))
+        check("sdk: keystone fehlt", "keystone fehlt" in (server.sdk_unusable(app) or ""))
+        with open(os.path.join(app, "sce_sys", "keystone"), "wb") as f:
+            f.write(b"\0" * 95)
+        check("sdk: keystone falsche Größe", "95" in (server.sdk_unusable(app) or ""))
+        with open(os.path.join(app, "sce_sys", "keystone"), "wb") as f:
+            f.write(b"\0" * 96)
+        check("sdk: keystone ok", server.sdk_unusable(app) is None)
+        check("sdk: Image wird nicht vorab geprüft", server.sdk_unusable(os.path.join(d, "x.exfat")) is None)
+        sdk = server.build_cmd("/s", "/o", "/t", {"preset": "fast"}, "sdk")
+        check("sdk: ohne --no-sony-sdk/--preset", "--no-sony-sdk" not in sdk and "--preset" not in sdk)
+        check("sdk: Metadaten online standardmäßig an", "--restore-metadata" in sdk)
+        eng = server.build_cmd("/s", "/o", "/t", {"preset": "fast", "restore_metadata": False, "keep_ampr": True}, "builtin")
+        check("engine: --no-sony-sdk --preset fast", eng[eng.index("--no-sony-sdk") + 1:eng.index("--no-sony-sdk") + 3] == ["--preset", "fast"])
+        check("engine: Metadaten aus", "--restore-metadata" not in eng and "--keep-ampr" in eng)
+        for n in ("pfs_image.dat", "game.ffpfs"):
+            open(os.path.join(d, n), "w").close()
+        check("classify pfs_image.dat", server.classify(os.path.join(d, "pfs_image.dat"))[0] == "ffpfs")
+        check("classify .ffpfs", server.classify(os.path.join(d, "game.ffpfs"))[0] == "ffpfs")
+        check(".ffpfsc bleibt ffpfsc", server.lower_ext("a.ffpfsc") == ".ffpfsc")
+        check("andere .dat nicht wählbar", server.lower_ext("x.dat") == ".dat")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_volumes()
     test_old_rar_naming()
@@ -467,6 +496,7 @@ if __name__ == "__main__":
     test_fix_suggestions()
     test_backport()
     test_pkg_names()
+    test_build_method()
     test_exfat()
     print(f"\n{len(FAILS)} Fehler" if FAILS else "\nalle Tests ok")
     sys.exit(1 if FAILS else 0)

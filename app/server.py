@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import backport as bp
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.5.0"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -49,7 +49,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STARTED = time.time()
 
 ARCHIVES = (".7z", ".zip", ".rar", ".tar", ".tgz", ".gz", ".xz", ".bz2", ".001")
-IMAGES = (".exfat", ".ffpfsc", ".ffpkg")
+IMAGES = (".exfat", ".ffpfsc", ".ffpfs", ".ffpkg")
+PFS_IMAGE = "pfs_image.dat"  # bare PFS image (fpkg-cli 3.1+), handled like .ffpfs
 MAX_NEST = 3  # inner archive levels unpacked automatically
 JUNK = {".DS_Store", "Thumbs.db", "desktop.ini", "__MACOSX", ".fseventsd", ".Spotlight-V100", ".Trashes"}
 COPY_CHUNK = 16 * 1024 * 1024
@@ -160,6 +161,8 @@ def lower_ext(p):
     if (re.search(r"\.\d{3}$", n) or re.search(r"\.part\d+\.rar$", n)
             or re.search(r"\.(r\d{2,3}|[s-y]\d{2}|z\d{2,3})$", n)):
         return ".001"
+    if os.path.basename(n) == PFS_IMAGE:
+        return ".ffpfs"
     for e in ARCHIVES + IMAGES + (".pkg",):
         if n.endswith(e):
             return e
@@ -201,12 +204,13 @@ def first_volume(paths):
 
 
 def classify(path):
-    """-> (kind, path) with kind in folder|archive|exfat|ffpfsc|ffpkg|pkg."""
+    """-> (kind, path) with kind in folder|archive|exfat|ffpfsc|ffpfs|ffpkg|pkg."""
     if os.path.isdir(path):
         app = find_app_dir(path)
         if app:
             return "folder", app
-        imgs = find_files(path, IMAGES)
+        imgs = [f for f in find_files(path, IMAGES + (PFS_IMAGE,))
+                if lower_ext(f) in IMAGES]
         if imgs:
             return classify(imgs[0])
         pkgs = find_files(path, (".pkg",))
@@ -342,6 +346,8 @@ DEFAULT_SETTINGS = {
     "watch_stable": 120,
     "watch_interval": 30,
     "watch_preset": "standard",
+    "watch_engine": "sdk",
+    "watch_restore_metadata": True,
     "watch_confirm": False,
     "watch_cleanup": True,
     "watch_delete_archive": False,
@@ -444,6 +450,8 @@ def update_settings(b):
             raise JobError(f"PS5-Adresse ungültig: {v!r}")
         if k == "watch_preset" and v not in ("fast", "standard", "smallest"):
             v = "standard"
+        if k == "watch_engine" and v not in ("sdk", "builtin"):
+            v = "sdk"
         if k == "watch_after" and v not in ("move", "keep"):
             v = "move"
         SETTINGS[k] = v
@@ -670,7 +678,7 @@ def title_id_for(path, kind, real):
     if m:
         return m.group(0).upper()
     try:
-        if kind in ("folder", "exfat", "ffpfsc", "ffpkg"):
+        if kind in ("folder", "exfat", "ffpfsc", "ffpfs", "ffpkg"):
             _, out = cmd_out([CLI, "inspect", real], 120)
         elif kind == "pkg":
             _, out = cmd_out([CLI, "pkg-info", real], 120)
@@ -794,6 +802,7 @@ def watch_scan():
             params = {
                 "source": key, "fix": fix, "out": safe_path(DEF_OUT, must_exist=False),
                 "work": safe_path(DEF_WORK, must_exist=False), "preset": SETTINGS["watch_preset"],
+                "engine": SETTINGS["watch_engine"], "restore_metadata": SETTINGS["watch_restore_metadata"],
                 "keep_ampr": False, "keep_dump": False, "confirm": SETTINGS["watch_confirm"],
                 "cleanup": SETTINGS["watch_cleanup"],
                 "delete_archive": SETTINGS["watch_delete_archive"] and kind == "archive",
@@ -916,6 +925,32 @@ RX_DATA = re.compile(r"\bdata\s+(\d+)% \(\d+/\d+\)")
 RX_LARGE = re.compile(r"processing large file: .+ \(([\d,]+) bytes\)")
 RX_KRAKEN = re.compile(r"Kraken level -?\d+:\s*(\d+)% of ")
 COMPRESS_END = 88.0  # overall % where the builder leaves the Kraken data phase
+
+
+def sdk_unusable(src):
+    """Reason why the Sony SDK cannot build this source, or None. Folders need sce_sys/keystone (96 bytes);
+    images are not opened here - if fpkg-cli rejects them, build() falls back to the built-in engine."""
+    if os.path.isdir(src):
+        ks = os.path.join(src, "sce_sys", "keystone")
+        if not os.path.isfile(ks):
+            return "sce_sys/keystone fehlt"
+        if os.path.getsize(ks) != 96:
+            return f"sce_sys/keystone hat {os.path.getsize(ks)} statt 96 Byte"
+    return None
+
+
+def build_cmd(src, out, tmp, p, engine):
+    """fpkg-cli build command. Sony SDK = fix15 toolkit (fpkg-cli default); --preset only affects the built-in engine."""
+    cmd = [CLI, "build", "--source", src, "--output", out, "--temp", tmp, "--no-sleep-guard"]
+    if engine != "sdk":
+        cmd += ["--no-sony-sdk", "--preset", p.get("preset") or "standard"]
+    if p.get("restore_metadata", True):
+        cmd.append("--restore-metadata")
+    if p.get("keep_ampr"):
+        cmd.append("--keep-ampr")
+    if p.get("keep_dump"):
+        cmd.append("--keep-dump-leftovers")
+    return cmd
 
 
 def parse_fpkg(job, line):
@@ -1293,7 +1328,8 @@ class Job:
         os.makedirs(tmp, exist_ok=True)
         self.log(f"FPKG WebUI {APP_VERSION} · Job {self.id}\nQuelle: {p['source']}\nFix:    {p.get('fix') or '-'}\n"
                  f"Ziel:   {p['out']}\nArbeit: {self.work}\n"
-                 f"Optionen: preset={p.get('preset')} anhalten={p.get('confirm')} aufräumen={p.get('cleanup')} "
+                 f"Optionen: methode={p.get('engine') or 'sdk'} metadaten_online={p.get('restore_metadata', True)} "
+                 f"preset={p.get('preset')} anhalten={p.get('confirm')} aufräumen={p.get('cleanup')} "
                  f"archiv_löschen={p.get('delete_archive')} keep_ampr={p.get('keep_ampr')} keep_dump={p.get('keep_dump')}")
         self.log(f"Freier Platz Arbeitsordner: {human(disk(self.work)['free'])} · Ausgabe: {human(disk(p['out'])['free'])}")
         kind, src = classify(p["source"])
@@ -1363,7 +1399,7 @@ class Job:
                 app = build_src = self.extract_exfat(src)
             else:
                 build_src = src
-        elif kind in ("ffpfsc", "ffpkg"):
+        elif kind in ("ffpfsc", "ffpfs", "ffpkg"):
             if fix:
                 raise JobError(f".{kind}-Images lassen sich nicht patchen. Ohne Fix bauen oder als Ordner/.exfat bereitstellen.")
             build_src = src
@@ -1445,14 +1481,25 @@ class Job:
         self.set_step("FPKG bauen")
         stage = os.path.join(p["out"], ".building-" + self.id)
         os.makedirs(stage, exist_ok=True)
-        cmd = [CLI, "build", "--source", build_src, "--output", stage, "--temp", tmp,
-               "--no-sony-sdk", "--no-sleep-guard", "--preset", p.get("preset") or "standard"]
-        if p.get("keep_ampr"):
-            cmd.append("--keep-ampr")
-        if p.get("keep_dump"):
-            cmd.append("--keep-dump-leftovers")
+        engine = p.get("engine") or "sdk"
+        if engine == "sdk":
+            why = sdk_unusable(build_src)
+            if why:
+                self.warn(f"Sony SDK nicht möglich ({why}) – baue mit der eingebauten Engine")
+                engine = "builtin"
         try:
-            self.run(cmd, parse_fpkg)
+            try:
+                self.run(build_cmd(build_src, stage, tmp, p, engine), parse_fpkg)
+            except JobError as e:
+                if engine != "sdk":
+                    raise
+                self.warn(f"Sony-SDK-Build fehlgeschlagen ({e}) – neuer Versuch mit der eingebauten Engine")
+                shutil.rmtree(stage, ignore_errors=True)
+                os.makedirs(stage, exist_ok=True)
+                engine = "builtin"
+                self.set_progress(0, "Eingebaute Engine")
+                self.run(build_cmd(build_src, stage, tmp, p, engine), parse_fpkg)
+            self.log("Gebaut mit: " + ("Sony SDK (fix15)" if engine == "sdk" else "eingebaute Engine"))
             pkgs = [f for f in os.listdir(stage) if f.lower().endswith(".pkg")]
             if not pkgs:
                 raise JobError("Build lief durch, aber kein .pkg gefunden")
@@ -1472,7 +1519,7 @@ class Job:
 
         self.set_step("Paket prüfen")
         rc, info = self.capture([CLI, "pkg-info", final])
-        res = {"pkg": final, "size": os.path.getsize(final)}
+        res = {"pkg": final, "size": os.path.getsize(final), "engine": engine}
         for key, rx in (("content_id", r"Content ID:\s*(\S+)"), ("version", r"contentVersion:\s*(\S+)"),
                         ("fw", r"Required system software:\s*(\S+)"), ("title", r"Title:\s*(.+)")):
             m = re.search(rx, info)
@@ -1613,7 +1660,7 @@ class Job:
         self.log(f"Erkannt: {kind} -> {src}")
         if kind == "folder":
             raise JobError("Die Quelle ist schon ein entpackter App-Ordner")
-        if kind in ("ffpkg", "ffpfsc"):
+        if kind in ("ffpkg", "ffpfsc", "ffpfs"):
             raise JobError(f".{kind}-Images kann fpkg-webui nicht entpacken – ShadowMountPlus mountet sie direkt")
         if p.get("name") and os.path.exists(os.path.join(dest, p["name"])):
             raise JobError(f"{os.path.join(dest, p['name'])} gibt es schon – anderen Ordnernamen wählen")
@@ -1778,7 +1825,7 @@ class Job:
                 if not ps5_reachable(host, SETTINGS["ps5_ftp_port"]):
                     raise PS5Offline(f"PS5 während der Prüfung nicht mehr erreichbar: {e}")
                 raise JobError(f"ShadowMountPlus-API nicht erreichbar ({host}:{SETTINGS['ps5_api_port']}): {e} – "
-                               "auf der PS5 muss api_bind_address=0.0.0.0 gesetzt sein, oder die Prüfung abwählen")
+                               "auf der PS5 muss die API im LAN erreichbar sein ([api] bind_address = 0.0.0.0), oder die Prüfung abwählen")
             if not g:
                 raise JobError(f"{tid} ist laut ShadowMountPlus nicht installiert – Spiel zuerst installieren "
                                "oder „Installation prüfen“ abwählen")
@@ -2349,6 +2396,10 @@ def selftest():
     checks.append({"name": "fpkg-cli startet", "ok": rc == 0, "detail": info.splitlines()[0] if info else ""})
     checks.append({"name": "LibProsperoPkg-Engine geladen", "ok": "[OK] LibProsperoPkg" in info, "detail": ""})
     checks.append({"name": "PS5 Debug-Keys bereit", "ok": "[OK] PS5 debug keys" in info, "detail": ""})
+    m = re.search(r"^\[(OK|--)\] Sony SDK[^:]*: (.*)$", info, re.M)
+    checks.append({"name": "Sony SDK (fix15) und Wine gefunden", "ok": bool(m and m.group(1) == "OK"),
+                   "detail": (m.group(2)[:200] if m else "keine Angabe von fpkg-cli info")
+                   + ("" if m and m.group(1) == "OK" else " – Builds fallen auf die eingebaute Engine zurück")})
     rc, z = cmd_out([SEVENZ, "i"], 15)
     checks.append({"name": "7-Zip vorhanden (inkl. RAR)", "ok": rc == 0 and " Rar5 " in z,
                    "detail": next((ln for ln in z.splitlines() if "7-Zip" in ln), "")})
@@ -2427,7 +2478,7 @@ def probe(path, fixes=False):
             img.close()
         except Exception as e:
             info["note"] = str(e)
-    if kind in ("folder", "exfat", "ffpfsc", "ffpkg"):
+    if kind in ("folder", "exfat", "ffpfsc", "ffpfs", "ffpkg"):
         rc, out = cmd_out([CLI, "inspect", real], 120)
         m = re.search(r"param\.json: (.+)", out)
         info["param"] = m.group(1).strip() if m else None
@@ -2523,7 +2574,7 @@ def ps5_test():
                       if code == 200 else {"ok": False, "detail": f"HTTP {code} {v.get('error', '')}"})
     except Exception as e:
         res["api"] = {"ok": False, "detail": f"{type(e).__name__}: {e} – nur für die optionale Prüfung nötig "
-                                            "(api_bind_address=0.0.0.0 in /data/shadowmount/config.ini)"}
+                                            "([api] bind_address = 0.0.0.0 in /data/shadowmount/config.ini, vor 1.7beta12: api_bind_address=0.0.0.0)"}
     LOG.info("ps5 test: ftp=%s api=%s", res["ftp"]["ok"], res["api"]["ok"])
     return res
 
@@ -2669,6 +2720,8 @@ class H(BaseHTTPRequestHandler):
                     "out": safe_path((b.get("out") or "").strip() or DEF_OUT, must_exist=False),
                     "work": safe_path((b.get("work") or "").strip() or DEF_WORK, must_exist=False),
                     "preset": b.get("preset") if b.get("preset") in ("fast", "standard", "smallest") else "standard",
+                    "engine": b.get("engine") if b.get("engine") in ("sdk", "builtin") else "sdk",
+                    "restore_metadata": bool(b.get("restore_metadata", True)),
                     "keep_ampr": bool(b.get("keep_ampr")),
                     "keep_dump": bool(b.get("keep_dump")),
                     "confirm": bool(b.get("confirm")),
@@ -2834,6 +2887,13 @@ class H(BaseHTTPRequestHandler):
 
 def main():
     LOG.info("FPKG WebUI %s starting on :%d", APP_VERSION, PORT)
+    # fpkg-cli (.NET) puts its Wine prefix under LocalApplicationData, which .NET resolves to "" while
+    # $HOME/.local/share does not exist - the prefix would then land in the working directory and be lost
+    # with every container update. HOME=/config in the image, so this keeps it on the config volume.
+    try:
+        os.makedirs(os.path.join(os.path.expanduser("~"), ".local", "share"), exist_ok=True)
+    except OSError as e:
+        LOG.warning("cannot create ~/.local/share for the Wine prefix: %s", e)
     LOG.info("roots: %s | out=%s work=%s data=%s", roots() or "(keine!)", DEF_OUT, DEF_WORK, DATA)
     if not roots():
         LOG.warning("Keine freigegebenen Ordner gefunden (BROWSE_ROOTS=%s) – Pfade im Template prüfen", ROOTS_SPEC)

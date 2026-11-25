@@ -1,6 +1,6 @@
 # fpkg-webui – Handbuch
 
-Stand: Version 1.4.2 · fpkg-cli 3.2.0 · 7-Zip 25.01
+Stand: Version 1.5.0 · fpkg-cli 3.2.0 · 7-Zip 25.01
 
 Dieses Handbuch beschreibt jede Funktion der Oberfläche, was dabei im Hintergrund passiert und wie
 die Anwendung aufgebaut ist. Kurzfassung und Installation stehen im [README](../README.md).
@@ -33,7 +33,9 @@ die Anwendung aufgebaut ist. Kurzfassung und Installation stehen im [README](../
 fpkg-webui ist eine Weboberfläche für Unraid, die aus einem PS5-Spiel ein installierbares
 **Debug-FPKG** baut (FIH, `PPRPLAIN-NOAUTH`, installierbar auf einer PS5 im Debug-Modus).
 Gebaut wird mit dem [PSVIETHOA FPKG Builder](https://github.com/thanhsondev/PSVIETHOA-FPKG-Builder)
-(`fpkg-cli`) und dessen eingebauter Engine (LibProsperoPkg von Drakmor).
+(`fpkg-cli`). Standard ist der **Sony SDK** (Publishing Tools 2.79 mit Drakmors Toolkit
+`sdk-fpkg279-fix15`, im Container über Wine), den Drakmor für gültige Pakete empfiehlt; Alternative
+ist die eingebaute Engine (LibProsperoPkg von Drakmor), siehe [Build-Methode](#build-methode).
 
 Die Oberfläche übernimmt alles um den eigentlichen Build herum:
 
@@ -96,7 +98,7 @@ folgen einem geänderten `DEFAULT_OUT` / `DEFAULT_WORK`.
 
 | Element | Text in der Oberfläche | Was dahinter passiert |
 |---|---|---|
-| **Quelle** + „…“ | „Datei oder Ordner wählen“ · Hinweis: „7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)“ | „…“ öffnet den Dateibrowser (`/api/ls`). Eingabe oder Auswahl prüft nach 400 ms per `/api/probe?fixes=1`: Art (`classify`), alle Teile (`archive_volumes`), Verschlüsselung und Title-ID (`7z l -slt`), bei Ordnern und Images `fpkg-cli inspect`, bei `.pkg` `fpkg-cli pkg-info`. Ergebnis grün unter dem Feld, z. B. „Archiv (185 Teile) · 92 GB“ |
+| **Quelle** + „…“ | „Datei oder Ordner wählen“ · Hinweis: „7z / zip / rar, .exfat / .ffpfsc / .ffpfs / pfs_image.dat / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)“ | „…“ öffnet den Dateibrowser (`/api/ls`). Eingabe oder Auswahl prüft nach 400 ms per `/api/probe?fixes=1`: Art (`classify`), alle Teile (`archive_volumes`), Verschlüsselung und Title-ID (`7z l -slt`), bei Ordnern und Images `fpkg-cli inspect`, bei `.pkg` `fpkg-cli pkg-info`. Ergebnis grün unter dem Feld, z. B. „Archiv (185 Teile) · 92 GB“ |
 | **Archiv-Passwort** | nur bei verschlüsselten Archiven · „leer = Passwörter aus den Einstellungen probieren“ · „gilt für Quelle und Fix · wird nicht im Log angezeigt“ | wird mit dem Auftrag übergeben, nie in `jobs.json` gespeichert |
 | **Fix / Backport** + „…“ + „✕“ | „leer = ohne Fix“ · „Archiv oder Ordner; Dateien ersetzen gleichnamige im App-Ordner“ | `/api/probe` für den Fix. „✕“ leert das Feld |
 | Fix-Vorschläge | „Passend zu PPSA…:“ · „Kein Fix für … – im Fix-Ordner:“ · „Title-ID unbekannt – im Fix-Ordner:“ · „N weitere zeigen“ | aus der Probe der Quelle: `list_fixes(Fix-Ordner, Title-ID)`. Ein Klick setzt das Fix-Feld |
@@ -105,6 +107,8 @@ folgen einem geänderten `DEFAULT_OUT` / `DEFAULT_WORK`.
 | ☑ **Arbeitsordner nach Erfolg löschen** | „entpackte Daten (oft 50–100 GB) werden entfernt“ | Schritt *Aufräumen* |
 | ☑ **Prüfsumme prüfen, wenn vorhanden** | „SHA-256 / MD5 / SFV neben der Quelle (z. B. SHA-256.txt) – kaputte Downloads fallen vor dem Entpacken auf“ | siehe [Prüfsummen](#8-prüfsummen) |
 | ☐ **Quellarchiv nach dem Entpacken löschen** | „löscht die .7z/.zip/.rar inkl. aller Teile (part2, .001 …), sobald das Entpacken erfolgreich war“ | löscht alle erkannten Teile. Der Arbeitsordner bleibt danach auch bei Fehlern erhalten. Bei Nicht-Archiven ausgegraut |
+| Erweitert → **Build-Methode** | „Sony SDK (fix15-Toolkit, empfohlen)“ · „Eingebaute Engine (LibProsperoPkg)“ | Sony SDK: `fpkg-cli build` ohne `--no-sony-sdk`; eingebaute Engine: `--no-sony-sdk --preset …`. Fehlt `sce_sys/keystone` oder scheitert der SDK-Build, baut die WebUI mit der eingebauten Engine weiter (Warnung im Auftrag) |
+| Erweitert → **Metadaten online wiederherstellen** | „lädt das passende *_sc.pkg von Sonys Server …“ | `--restore-metadata` (Standard an) |
 | Erweitert → **Kompression** | „Standard (Kraken 4)“ · „Schnell (Kraken 2)“ · „Klein (Kraken 7 Optimal, 5–6× langsamer)“ | `--preset standard / fast / smallest`, siehe [Kompression](#7-kompression) |
 | Erweitert → **Arbeitsordner** | „frei: …“ | `/work/job-<id>` entsteht darunter |
 | Erweitert → **Vollprüfung nach dem Bauen** | „liest das ganze Paket und dekomprimiert jede Datei – dauert länger“ | `fpkg-cli verify --full` statt `verify` |
@@ -151,7 +155,7 @@ neu gestartet*.
 
 | Schritt | Was passiert | Werkzeug |
 |---|---|---|
-| FPKG bauen | baut in `<Ausgabe>/.building-<id>`, benennt danach auf den Namen von fpkg-cli um. Ein halbfertiges Paket trägt nie den echten Namen. Existiert der Name schon, wird `-<Auftrags-ID>` angehängt. Besitzer wird `PUID:PGID` | `fpkg-cli build --source … --output … --temp … --no-sony-sdk --no-sleep-guard --preset …` |
+| FPKG bauen | baut in `<Ausgabe>/.building-<id>`, benennt danach auf den Namen von fpkg-cli um. Ein halbfertiges Paket trägt nie den echten Namen. Existiert der Name schon, wird `-<Auftrags-ID>` angehängt. Besitzer wird `PUID:PGID` | `fpkg-cli build --source … --output … --temp … --no-sleep-guard [--restore-metadata]`, eingebaute Engine zusätzlich `--no-sony-sdk --preset …` |
 | Paket prüfen | Titel, Version, benötigte Firmware, Content-ID lesen; Dateiliste mit den Fix-Dateien abgleichen (fehlende → Warnung); Schnell- oder Vollprüfung | `fpkg-cli pkg-info`, `pkg-list`, `verify [--full]` |
 | Aufräumen | Arbeitsordner löschen | — |
 
@@ -173,7 +177,7 @@ Der Dateiname kommt von fpkg-cli: `<Content-ID>-A<App-Version>-V<Version>.pkg`, 
 | Archiv im Archiv (z. B. DUPLEX) | bis 3 Ebenen automatisch |
 | passwortgeschützt, auch mit verschlüsselten Dateinamen | Passwort im Auftrag oder Liste in den Einstellungen |
 | `.exfat` (auch mit MBR/GPT) | ohne Fix direkt bauen, mit Fix App herauskopieren |
-| `.ffpfsc`, `.ffpkg` | direkt bauen, kein Fix möglich |
+| `.ffpfsc`, `.ffpfs`, `pfs_image.dat`, `.ffpkg` | direkt bauen, kein Fix möglich (`.ffpfs` / `pfs_image.dat` ab fpkg-cli 3.1) |
 | `.pkg` | entpacken und neu bauen, z. B. um einen Fix einzubauen |
 | Ordner | App-Ordner (`sce_sys` + `eboot.bin`) darin → bauen; sonst Image, `.pkg` oder Archiv darin suchen |
 
@@ -225,7 +229,9 @@ Ablauf eines Auftrags:
    `sce_sys/param.json`.
 3. **PS5 prüfen** (optional): `POST /api/v1/games` der ShadowMountPlus-API, Title-ID muss in der Liste
    sein; mit „Version passt“ wird `version` (CONTENT_VERSION) mit der Version aus dem Formular verglichen.
-   Dafür muss auf der PS5 `api_bind_address=0.0.0.0` gesetzt sein (Standard ist `127.0.0.1`).
+   Dafür muss die API auf der PS5 im LAN erreichbar sein: `[api]` → `bind_address = 0.0.0.0` in
+   `/data/shadowmount/config.ini` (Konfigurationsformat v2 ab 1.7beta12, dort auch der Standard; ältere
+   Versionen: `api_bind_address=0.0.0.0`, der alte Schlüssel wird weiter gelesen).
 4. **Hochladen** per FTP nach `<Backport-Ordner>/.<TITLE_ID>.upload-<Job>`, Größen per `SIZE` prüfen,
    vorhandenes `<Backport-Ordner>/<TITLE_ID>` nach `<Sicherungsordner>/<TITLE_ID>-<Zeit>-<Job>` verschieben,
    dann den Temp-Ordner umbenennen. Bei Fehler/Abbruch wird nur der Temp-Ordner entfernt.
@@ -252,6 +258,26 @@ Standard 2121, Benutzer leer = anonymous). „Verbindung testen“ prüft FTP un
 ---
 
 ## 7. Kompression
+
+<a id="build-methode"></a>
+**Build-Methode.** Seit 1.5.0 baut die WebUI standardmäßig mit dem Sony SDK, so wie es fpkg-cli
+ohne `--no-sony-sdk` tut. fpkg-cli verwendet dafür seit 3.1.0 Drakmors Toolkit `sdk-fpkg279-fix15`
+(Profil `sdk279-plaintext-direct-v6`): SDK-Version bleibt im Paket, PlayGo-Layout der Quelle bleibt,
+UDS-UCPs werden repariert oder aus `npbind.dat` neu erzeugt, Unreal-Laufzeit-Configs fallen weg
+([fpkg-cli-Changelog 3.1.0](https://github.com/thanhsondev/PSVIETHOA-FPKG-Builder/blob/v3.2.0/CHANGELOG.md)).
+Der Sony SDK nutzt die Kompressionsstufe von Publishing Tools (7); die Auswahl unten gilt nur für die
+eingebaute Engine.
+
+- Der Sony SDK braucht `sce_sys/keystone` (genau 96 Byte). Bei Ordnern prüft die WebUI das vorab und
+  nimmt sonst gleich die eingebaute Engine. Bei Images entscheidet fpkg-cli.
+- Scheitert der SDK-Build (Wine, Publishing Tools), wird das Zwischenergebnis verworfen und mit der
+  eingebauten Engine neu gebaut. Beides steht als Warnung im Auftrag, die Ergebniszeile zeigt die
+  tatsächlich verwendete Methode.
+- Wine läuft im Container mit Xvfb (`DISPLAY=:99`). Den Wine-Prefix legt fpkg-cli beim ersten
+  SDK-Build unter `/config/.local/share/psviethoa-fpkg-builder/wine-prefix` an (laut fpkg-cli
+  20–40 s, ~170 MB); er bleibt über Image-Updates erhalten.
+- Der Selbsttest zeigt „Sony SDK (fix15) und Wine gefunden“. Das sagt nur, dass fpkg-cli Wine
+  findet – ob Wine startet, zeigt erst der erste Build.
 
 fpkg-cli komprimiert die Dateien im Paket mit **Kraken** (Oodle-Format) über einen eingebauten
 Encoder – laut `fpkg-cli info` „byte-identical to native Oodle“. Die Kompression kostet beim Bauen
@@ -352,7 +378,8 @@ Gespeichert in `/config/settings.json` über **Speichern**.
 | Watch-Ordner | aktiv | aus |
 | | Eingang / Fix-Ordner | `/shares/NZB/fpkg-inbox` / `/shares/NZB/fpkg-fixes` |
 | | Stillstand vor Start / Prüfintervall | 120 s / 30 s (mindestens 5) |
-| | Kompression | Standard |
+| | Build-Methode / Metadaten online wiederherstellen | Sony SDK / an |
+| | Kompression (nur eingebaute Engine) | Standard |
 | | Nach Erfolg | Quelle nach `_erledigt` verschieben |
 | | Vor dem Bauen anhalten – „sonst baut der Watch-Ordner ohne Rückfrage“ | aus |
 | | Arbeitsordner nach Erfolg löschen / Quellarchiv löschen | an / aus |
@@ -380,9 +407,9 @@ sie maskiert.
 ## 14. Grenzen
 
 - **Keine separaten Update-, Backport- oder Fix-Pakete.** fpkg-cli baut Update-Pakete nur über das
-  Sony SDK (`--sdk-reference`, Publishing Tools 2.79). Das ist nicht im Container enthalten; die
-  eingebaute Engine kennt nur `--kind app|homebrew|dlc`. Ein Fix geht nur ins Spiel-Paket.
-- Kein Fix auf `.ffpfsc` / `.ffpkg`.
+  Sony SDK (`--sdk-reference`). Der SDK ist seit 1.5.0 im Container, die WebUI bietet Update-Pakete
+  aber nicht an. Ein Fix geht nur ins Spiel-Paket.
+- Kein Fix auf `.ffpfsc` / `.ffpfs` / `pfs_image.dat` / `.ffpkg`.
 - `fakelib/libSceAmpr.sprx` landet nie im Paket.
 - Ergebnis sind immer Debug-FPKGs.
 - **Kein Login.** Nur im LAN betreiben, nicht ungeschützt über einen Reverse-Proxy freigeben.
@@ -562,8 +589,8 @@ v=3.2.0; curl -fsSL "https://github.com/thanhsondev/PSVIETHOA-FPKG-Builder/relea
 ```
 
 Release-Notes auf geändertes Standardverhalten prüfen (z. B. 2.2.6: PlayGo der Quelle bleibt jetzt
-erhalten; 3.1.0: Sony-SDK-Modus auf das Toolkit `sdk-fpkg279-fix15` umgestellt – betrifft die WebUI
-nicht, sie baut mit `--no-sony-sdk`).
+erhalten; 3.1.0: Sony-SDK-Modus auf das Toolkit `sdk-fpkg279-fix15` umgestellt – das ist seit
+WebUI 1.5.0 die Standard-Build-Methode).
 
 ### Updates
 

@@ -13,7 +13,7 @@ Ausführliches Handbuch mit allen Funktionen, Abläufen, Fehlerbildern und dem A
 ## Funktionen
 
 - **Quellen:** `.7z`, `.zip`, `.rar` (auch mehrteilig: `.7z.001`, `.part1.rar`, `.r00`, `.z01`),
-  `.exfat`, `.ffpfsc`, `.ffpkg`, `.pkg` oder ein App-Ordner (`sce_sys` + `eboot.bin`).
+  `.exfat`, `.ffpfsc`, `.ffpfs`, `pfs_image.dat`, `.ffpkg`, `.pkg` oder ein App-Ordner (`sce_sys` + `eboot.bin`).
   Was in einem Archiv steckt, wird automatisch erkannt.
 - **Fix/Backport:** Archiv oder Ordner wird 1:1 über den App-Ordner gelegt. Vorher zeigt die
   Oberfläche, welche Dateien ersetzt werden und welche neu sind. Nach dem Bau wird geprüft, ob
@@ -97,12 +97,14 @@ lässt sich ein Eintrag erneut verarbeiten.
 ## Was man wissen muss
 
 - Ergebnis ist ein **Debug-FPKG** (FIH, PLAINTEXT_NOAUTH) – installierbar auf einer PS5 mit Debug-Modus.
-- Gebaut wird mit der eingebauten Engine (`--no-sony-sdk`). Der Sony-SDK-Weg (Update-Pakete mit
-  `--sdk-reference`) braucht Wine und ist nicht enthalten.
+- Gebaut wird standardmäßig mit dem **Sony SDK** (Drakmors Toolkit `sdk-fpkg279-fix15`, über Wine im
+  Container) und **„Metadaten online wiederherstellen“**. Fehlt `sce_sys/keystone` oder scheitert der
+  SDK-Build, baut die WebUI automatisch mit der eingebauten Engine (Warnung im Auftrag). Unter
+  *Erweitert* lässt sich die eingebaute Engine fest wählen.
 - `fakelib/libSceAmpr.sprx` entfernt der Builder **immer** aus dem Paket, auch mit `--keep-ampr`
   (das betrifft nur `ampr_emu.index`). Die Oberfläche warnt, wenn ein Fix diese Datei enthält.
 - Der Builder lässt Unreal-Dump-Reste (`Engine/Saved`, `<Projekt>/Saved`, `_DUBLEX_`) standardmäßig weg.
-- `.ffpfsc` ist komprimiert und kann nicht gepatcht werden – ohne Fix bauen geht.
+- `.ffpfsc` / `.ffpfs` / `pfs_image.dat` können nicht gepatcht werden – ohne Fix bauen geht.
 - Gleichnamige Pakete werden nicht überschrieben, das neue bekommt die Auftrags-ID angehängt.
 - **Kein Login.** Nur im LAN betreiben, nicht ungeschützt über einen Reverse-Proxy freigeben.
 

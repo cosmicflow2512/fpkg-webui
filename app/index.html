@@ -151,7 +151,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <div id="mode-fpkg">
     <label class="f" for="src">Quelle</label>
     <div class="row"><input id="src" type="text" placeholder="Datei oder Ordner wählen"><button data-pick="src" title="Durchsuchen">…</button></div>
-    <div class="hint" id="src-hint">7z / zip / rar, .exfat / .ffpfsc / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)</div>
+    <div class="hint" id="src-hint">7z / zip / rar, .exfat / .ffpfsc / .ffpfs / pfs_image.dat / .ffpkg, .pkg oder App-Ordner (sce_sys + eboot.bin)</div>
     <div id="pw-wrap" style="display:none"><label class="f" for="password">Archiv-Passwort</label>
       <input id="password" type="password" autocomplete="off" placeholder="leer = Passwörter aus den Einstellungen probieren">
       <div class="hint">gilt für Quelle und Fix · wird nicht im Log angezeigt</div></div>
@@ -177,7 +177,13 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     </div>
     <details>
       <summary>Erweitert</summary>
-      <label class="f" for="preset">Kompression</label>
+      <label class="f" for="engine">Build-Methode</label>
+      <select id="engine"><option value="sdk">Sony SDK (fix15-Toolkit, empfohlen)</option><option value="builtin">Eingebaute Engine (LibProsperoPkg)</option></select>
+      <div class="hint">Sony SDK braucht <span class="mono">sce_sys/keystone</span> (96 Byte) in der Quelle. Fehlt sie oder scheitert der SDK-Build, baut die WebUI automatisch mit der eingebauten Engine und warnt im Auftrag.</div>
+      <div class="opts">
+        <label><input type="checkbox" id="restore_metadata" checked><span>Metadaten online wiederherstellen (--restore-metadata)<small>lädt das passende *_sc.pkg von Sonys Server und ersetzt fehlende/beschädigte sce_sys-Dateien im Paket; die Quelle bleibt unverändert. Ohne Internet oder ohne passende Version nur eine Warnung</small></span></label>
+      </div>
+      <label class="f" for="preset">Kompression <span style="font-weight:400;color:var(--muted)">(nur eingebaute Engine; der Sony SDK nutzt Stufe 7 wie das Toolkit)</span></label>
       <select id="preset"><option value="standard">Standard (Kraken 4)</option><option value="fast">Schnell (Kraken 2)</option><option value="smallest">Klein (Kraken 7 Optimal, 5–6× langsamer)</option></select>
       <label class="f" for="work">Arbeitsordner</label>
       <div class="row"><input id="work" type="text"><button data-pick="work" data-dir="1" title="Durchsuchen">…</button></div>
@@ -302,10 +308,12 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       <div class="grid">
         <div><label class="f">Stillstand vor Start (s)</label><input id="s-watch_stable" type="text"></div>
         <div><label class="f">Prüfintervall (s)</label><input id="s-watch_interval" type="text"></div>
-        <div><label class="f">Kompression</label><select id="s-watch_preset"><option value="standard">Standard</option><option value="fast">Schnell</option><option value="smallest">Klein</option></select></div>
+        <div><label class="f">Build-Methode</label><select id="s-watch_engine"><option value="sdk">Sony SDK (fix15)</option><option value="builtin">Eingebaute Engine</option></select></div>
+        <div><label class="f">Kompression (eingebaute Engine)</label><select id="s-watch_preset"><option value="standard">Standard</option><option value="fast">Schnell</option><option value="smallest">Klein</option></select></div>
         <div><label class="f">Nach Erfolg</label><select id="s-watch_after"><option value="move">Quelle nach _erledigt verschieben</option><option value="keep">Quelle liegen lassen</option></select></div>
       </div>
       <div class="opts">
+        <label><input type="checkbox" id="s-watch_restore_metadata"><span>Metadaten online wiederherstellen<small>--restore-metadata, wie im Formular</small></span></label>
         <label><input type="checkbox" id="s-watch_confirm"><span>Vor dem Bauen anhalten<small>sonst baut der Watch-Ordner ohne Rückfrage</small></span></label>
         <label><input type="checkbox" id="s-watch_cleanup"><span>Arbeitsordner nach Erfolg löschen</span></label>
         <label><input type="checkbox" id="s-watch_delete_archive"><span>Quellarchiv nach dem Entpacken löschen</span></label>
@@ -333,7 +341,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
         <div><label class="f">Neuer Versuch alle (min)</label><input id="s-ps5_retry_minutes" type="text"></div>
         <div><label class="f">Höchstens warten (h)</label><input id="s-ps5_retry_hours" type="text"></div>
       </div>
-      <div class="hint">Die API ist auf der PS5 standardmäßig nur lokal erreichbar: <span class="mono">api_bind_address=0.0.0.0</span> in <span class="mono">/data/shadowmount/config.ini</span> setzen (ShadowMountPlus-Weboberfläche: LAN-Zugriff erlauben). Sie hat keine Anmeldung.</div>
+      <div class="hint">Die API muss im LAN erreichbar sein: in <span class="mono">/data/shadowmount/config.ini</span> unter <span class="mono">[api]</span> <span class="mono">bind_address = 0.0.0.0</span> (ab 1.7beta12 Standard; ältere Versionen: <span class="mono">api_bind_address=0.0.0.0</span>) oder in der ShadowMountPlus-Weboberfläche LAN-Zugriff erlauben. Sie hat keine Anmeldung.</div>
       <div class="row" style="margin-top:10px;flex-wrap:wrap"><button id="s-ps5test">Verbindung testen</button><span class="hint" id="s-ps5msg" style="align-self:center"></span></div>
       <div class="tres" id="s-ps5res"></div>
 
@@ -393,13 +401,13 @@ const post = (url, body) => api(url, {method:'POST', headers:{'Content-Type':'ap
 const human = n => { if (n == null) return ''; const u=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<4){n/=1024;i++} return (i?n.toFixed(1):n)+' '+u[i]; };
 const dur = s => { s=Math.round(s||0); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60; return h? `${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}` : `${m}:${String(x).padStart(2,'0')}`; };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const KIND = {archive:'Archiv', folder:'App-Ordner', exfat:'exFAT-Image', ffpfsc:'ffpfsc-Image', ffpkg:'ffpkg-Image', pkg:'FPKG'};
+const KIND = {archive:'Archiv', folder:'App-Ordner', exfat:'exFAT-Image', ffpfsc:'ffpfsc-Image', ffpfs:'PFS-Image', ffpkg:'ffpkg-Image', pkg:'FPKG'};
 const STATUS = {queued:'Warteschlange', running:'läuft', waiting:'Freigabe', ready:'bereit', retry:'wartet auf PS5', done:'fertig', failed:'Fehler', cancelled:'abgebrochen'};
 const ACTIVE = ['queued','running','waiting','ready','retry'];
 let CFG = {}, sel = null, logOff = -1, logFor = null, srcKind = null;
 
 // ---------- form persistence (per browser)
-const FIELDS = ['src','fix','out','work','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'];
+const FIELDS = ['src','fix','out','work','engine','restore_metadata','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'];
 // _def_out/_def_work remember the server defaults at save time: a saved value that was just the old default
 // follows a changed DEFAULT_OUT/DEFAULT_WORK instead of sticking (forms saved before 1.2.2: /output, /work).
 const DEF_KEYS = {out:'_def_out', work:'_def_work'}, OLD_DEF = {out:'/output', work:'/work'};
@@ -511,13 +519,13 @@ $('#fix-clear').onclick = () => { $('#fix').value=''; saveForm(); probe('fix'); 
 $('#fix').addEventListener('input', nameHint);
 ['src','fix'].forEach(id => $('#'+id).addEventListener('input', ()=>{ saveForm(); probeLater(id); }));
 ['out','work'].forEach(id => $('#'+id).addEventListener('change', ()=>{ saveForm(); freeHint(id); }));
-['preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'].forEach(id => $('#'+id).addEventListener('change', saveForm));
+['engine','restore_metadata','preset','confirm','cleanup','keep_ampr','keep_dump','delete_archive','checksum','full_verify'].forEach(id => $('#'+id).addEventListener('change', saveForm));
 
 // ---------- start
 $('#start').onclick = async () => {
   $('#start-err').textContent='';
   const b = {source:$('#src').value.trim(), fix:$('#fix').value.trim(), out:$('#out').value.trim(), work:$('#work').value.trim(),
-             preset:$('#preset').value, confirm:$('#confirm').checked, cleanup:$('#cleanup').checked,
+             engine:$('#engine').value, restore_metadata:$('#restore_metadata').checked, preset:$('#preset').value, confirm:$('#confirm').checked, cleanup:$('#cleanup').checked,
              keep_ampr:$('#keep_ampr').checked, keep_dump:$('#keep_dump').checked, delete_archive:$('#delete_archive').checked, checksum:$('#checksum').checked, full_verify:$('#full_verify').checked, password:$('#password').value, pkg_name:$('#pkg_name').value.trim()};
   if (!b.source){ $('#start-err').textContent='Quelle fehlt'; return; }
   if (b.delete_archive && !confirm('Das Quellarchiv wird nach erfolgreichem Entpacken GELÖSCHT. Fortfahren?')) return;
@@ -609,7 +617,7 @@ function renderJob(j){
       + (x.backup ? `<br>altes Backport gesichert: <b>${esc(x.backup)}</b>` : '<br>es gab vorher kein Backport für diese Title-ID');
   } else if (j.result){
     const x=j.result; res.style.display='block';
-    res.innerHTML = `Paket: <b>${esc(x.pkg)}</b><br>${esc(x.title||'')} · ${esc(x.content_id||'')} · Version ${esc(x.version||'?')} · Firmware ${esc(x.fw||'?')} · ${human(x.size)} · ${x.verify_mode==='full'?'Vollprüfung':'Schnellprüfung'} ${x.verify?'<span class="okc">OK</span>':'<span class="bad">FEHLER</span>'}${x.duration?' · Dauer '+dur(x.duration):''}`
+    res.innerHTML = `Paket: <b>${esc(x.pkg)}</b><br>${esc(x.title||'')} · ${esc(x.content_id||'')} · Version ${esc(x.version||'?')} · Firmware ${esc(x.fw||'?')} · ${human(x.size)} · ${x.engine==='sdk'?'Sony SDK':x.engine==='builtin'?'eingebaute Engine':''}${x.engine?' · ':''}${x.verify_mode==='full'?'Vollprüfung':'Schnellprüfung'} ${x.verify?'<span class="okc">OK</span>':'<span class="bad">FEHLER</span>'}${x.duration?' · Dauer '+dur(x.duration):''}`
       + (x.fix_missing && x.fix_missing.length ? `<br><span style="color:var(--warn)">nicht im Paket: ${esc(x.fix_missing.join(', '))}</span>` : (x.fix_missing ? '<br><span style="color:var(--ok)">alle Fix-Dateien im Paket</span>' : ''));
   } else res.style.display='none';
   const nm=$('#d-name'), editable = !j.params.type && ['queued','waiting','ready'].includes(j.status);
@@ -732,7 +740,7 @@ $('#g-selftest').onclick = async () => {
 };
 
 // ---------- settings
-const SKEYS = ['archive_passwords','overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','extra_fix_dirs','watch_stable','watch_interval','watch_preset','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting','ps5_host','ps5_ftp_port','ps5_ftp_user','ps5_ftp_pass','ps5_api_port','ps5_backport_dir','ps5_backup_dir','ps5_retry','ps5_retry_minutes','ps5_retry_hours'];
+const SKEYS = ['archive_passwords','overlap','checksum','watch_enabled','watch_dir','watch_fix_dir','extra_fix_dirs','watch_stable','watch_interval','watch_preset','watch_engine','watch_restore_metadata','watch_after','watch_confirm','watch_cleanup','watch_delete_archive','pushover_enabled','pushover_user','pushover_token','webui_url','notify_done','notify_failed','notify_waiting','ps5_host','ps5_ftp_port','ps5_ftp_user','ps5_ftp_pass','ps5_api_port','ps5_backport_dir','ps5_backup_dir','ps5_retry','ps5_retry_minutes','ps5_retry_hours'];
 async function loadSettings(){
   try{ const s = await api('/api/settings'); const L=s.locked||[]; SKEYS.forEach(k=>{ const e=$('#s-'+k); if(!e) return; if(e.type==='checkbox') e.checked=!!s[k]; else e.value=s[k]??''; e.disabled=L.includes(k); if(L.includes(k)) e.title='aus dem Unraid-Template (Umgebungsvariable)'; }); $('#s-envhint').textContent = L.length ? 'Gesperrte Felder kommen aus dem Unraid-Template: '+L.map(k=>({pushover_user:'PUSHOVER_USER',pushover_token:'PUSHOVER_TOKEN',webui_url:'WEBUI_URL'})[k]).join(', ') : ''; }catch(e){ $('#s-msg').textContent=e.message; }
   loadWatch();
@@ -771,7 +779,7 @@ async function exProbe(){
   try{ const r=await api('/api/probe?path='+encodeURIComponent(v)); exInfo=r;
     let t=(KIND[r.kind]||r.kind); if (r.volumes>1) t+=` (${r.volumes} Teile)`; if (r.size!=null) t+=' · '+human(r.size); if (r.title_id) t+=' · '+r.title_id; if (r.encrypted){ t+=' · 🔒 passwortgeschützt'; $('#ex-pw-wrap').style.display=''; }
     if (r.kind==='folder'){ h.className='hint warn'; h.textContent=t+' – ist schon entpackt'; }
-    else if (r.kind==='ffpkg'||r.kind==='ffpfsc'){ h.className='hint warn'; h.textContent=t+' – lässt sich nicht entpacken'; }
+    else if (r.kind==='ffpkg'||r.kind==='ffpfsc'||r.kind==='ffpfs'){ h.className='hint warn'; h.textContent=t+' – lässt sich nicht entpacken'; }
     else { h.className='hint ok'; h.textContent=t; }
     if (r.kind==='archive'){ $('#ex-del').disabled=false; $('#lbl-ex-del').classList.remove('off'); }
   }catch(e){ h.className='hint err'; h.textContent=e.message; }

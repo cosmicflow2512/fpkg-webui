@@ -7,8 +7,8 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/cosmicflow2512/fpkg-webui/issues</Support>
   <Project>https://github.com/cosmicflow2512/fpkg-webui</Project>
-  <Overview>Weboberfläche zum Erstellen von PS5-FPKGs (Debug-Pakete) mit PSVIETHOA fpkg-cli.&#xD;
-Quelle: 7z/zip/rar (auch mehrteilig), .exfat/.ffpfsc/.ffpkg, .pkg oder App-Ordner. Optional einen Fix/Backport drüberlegen.&#xD;
+  <Overview>Weboberfläche zum Erstellen von PS5-FPKGs (Debug-Pakete) mit PSVIETHOA fpkg-cli, standardmäßig über den Sony SDK (Drakmors fix15-Toolkit, Wine im Container) mit Metadaten-Wiederherstellung online.&#xD;
+Quelle: 7z/zip/rar (auch mehrteilig), .exfat/.ffpfsc/.ffpfs/pfs_image.dat/.ffpkg, .pkg oder App-Ordner. Optional einen Fix/Backport drüberlegen.&#xD;
 Watch-Ordner mit automatischer Fix-Zuordnung, Prüfsummen-Check, überlappende Warteschlange, Pushover, Diagnose.&#xD;
 Nur entpacken (Archiv/exFAT/FPKG -&gt; App-Ordner), Paketname vorab sehen und ändern.&#xD;
 Backport -&gt; PS5: Backport per FTP nach /data/homebrew/backports/&lt;TITLE_ID&gt; kopieren, ShadowMountPlus legt es beim Spielstart über das Spiel (PS5-Adresse/FTP in der WebUI unter Einstellungen).&#xD;

@@ -6,11 +6,14 @@ ARG SEVENZIP_URL=https://github.com/ip7z/7zip/releases/download/25.01/7z2501-lin
 ARG SEVENZIP_SHA256=4ca3b7c6f2f67866b92622818b58233dc70367be2f36b498eb0bdeaaa44b53f4
 
 LABEL org.opencontainers.image.title="fpkg-webui" \
-      org.opencontainers.image.description="Web UI for building PS5 FPKGs with PSVIETHOA fpkg-cli (archives, exFAT images, fixes)" \
+      org.opencontainers.image.description="Web UI for building PS5 FPKGs with PSVIETHOA fpkg-cli (Sony SDK fix15 via Wine, archives, exFAT images, fixes)" \
       org.opencontainers.image.source="https://github.com/cosmicflow2512/fpkg-webui"
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl xz-utils libicu72 libssl3 python3 \
+# Wine runs the Sony SDK (Publishing Tools 2.79, fix15 toolkit, 64-bit) and the PS4 tools (32-bit); Xvfb gives it a display
+RUN dpkg --add-architecture i386 \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl xz-utils libicu72 libssl3 python3 procps \
+      wine wine64 wine32:i386 fonts-wine winbind xvfb \
  && rm -rf /var/lib/apt/lists/*
 
 # PSVIETHOA fpkg-cli (CLI only, the desktop GUI is removed)
@@ -38,6 +41,8 @@ ENV PORT=8095 \
     DEFAULT_WORK=/work \
     DATA_DIR=/config \
     HOME=/config \
+    WINEDEBUG=-all \
+    DISPLAY=:99 \
     PUID=99 PGID=100 \
     LOG_LEVEL=INFO \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
@@ -45,4 +50,5 @@ ENV PORT=8095 \
 EXPOSE 8095
 HEALTHCHECK --interval=60s --timeout=10s --start-period=20s \
   CMD python3 -c "import urllib.request,sys;urllib.request.urlopen('http://127.0.0.1:8095/api/config',timeout=5)" || exit 1
-CMD ["python3", "/app/server.py"]
+# fpkg-cli keeps its Wine prefix in $HOME/.local/share/psviethoa-fpkg-builder (= /config, created on the first SDK build)
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1024x768x24 -nolisten tcp >/tmp/xvfb.log 2>&1 & exec python3 /app/server.py"]

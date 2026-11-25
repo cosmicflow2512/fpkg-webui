@@ -139,7 +139,7 @@ def slt_entries(listing):
 
 # ---------------------------------------------------------------- ShadowMountPlus API
 def smp_call(host, port, route, body=None, timeout=8):
-    """POST JSON to the ShadowMountPlus API (needs api_bind_address=0.0.0.0 on the PS5)."""
+    """POST JSON to the ShadowMountPlus API (needs the API bound to the LAN on the PS5: [api] bind_address = 0.0.0.0)."""
     req = urllib.request.Request(f"http://{host}:{port}{route}", data=json.dumps(body or {}).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
     try:

@@ -1,12 +1,21 @@
 # Changelog
 
-## 1.4.2 – 2026-11-25
-- fpkg-cli 2.2.6 → 3.2.0 (Releases 2.2.7, 3.0.0, 3.1.0, 3.2.0, [Changelog](https://github.com/thanhsondev/PSVIETHOA-FPKG-Builder/blob/v3.2.0/CHANGELOG.md)). Für die WebUI (eingebaute Engine, `--no-sony-sdk`) relevant:
+## 1.5.0 – 2026-11-25
+- **Build mit dem Sony SDK als Standard** (Drakmors Toolkit `sdk-fpkg279-fix15`, das fpkg-cli seit 3.1.0 im Sony-SDK-Modus nutzt und Drakmor für gültige Pakete empfiehlt): SDK-Version bleibt im Paket, PlayGo-Layout der Quelle bleibt, UDS-UCPs werden repariert/neu erzeugt, Unreal-Laufzeit-Configs fallen weg. Das Image enthält dafür Wine (64- und 32-Bit) und Xvfb
+  - Neue Option *Erweitert → Build-Methode*: „Sony SDK (fix15)“ (Standard) oder „Eingebaute Engine“; ebenso in den Watch-Einstellungen
+  - Fehlt `sce_sys/keystone` (96 Byte) oder scheitert der SDK-Build, baut die WebUI automatisch mit der eingebauten Engine weiter und warnt im Auftrag; die Ergebniszeile zeigt die verwendete Methode
+  - Kompression (Preset) gilt nur noch für die eingebaute Engine, der Sony SDK nutzt Stufe 7 wie das Toolkit
+  - Der Wine-Prefix liegt unter `/config/.local/share/psviethoa-fpkg-builder` und übersteht Image-Updates (die WebUI legt `~/.local/share` an, sonst hätte fpkg-cli ihn im Arbeitsverzeichnis des Containers angelegt)
+  - Selbsttest: neuer Punkt „Sony SDK (fix15) und Wine gefunden“
+- **Metadaten online wiederherstellen** (`--restore-metadata`), Standard an, im Formular und für den Watch-Ordner: lädt das passende `*_sc.pkg` von Sonys Server und ersetzt fehlende/beschädigte `sce_sys`-Dateien im Paket. Ohne Internet, ohne `versionFileUri` oder für Update-Pakete nur eine Warnung
+- Neue Quellen `.ffpfs` (unkomprimiertes PFS-Image) und `pfs_image.dat` (fpkg-cli ab 3.1.0)
+- ShadowMountPlus-Hinweise an das Konfigurationsformat v2 (ab 1.7beta12) angepasst: `[api]` → `bind_address = 0.0.0.0`, dort auch der Standard; der alte Schlüssel `api_bind_address` wird weiter gelesen
+- fpkg-cli 2.2.6 → 3.2.0 (Releases 2.2.7, 3.0.0, 3.1.0, 3.2.0, [Changelog](https://github.com/thanhsondev/PSVIETHOA-FPKG-Builder/blob/v3.2.0/CHANGELOG.md)). Für die eingebaute Engine relevant:
   - Eingebaute Engine auf Drakmors fpkg-gui 0.6.12: eine PlayGo-Tabelle der Quelle mit nur einem Chunk bleibt erhalten (vorher durch 100 Fallback-Chunks ersetzt), korrigierte CNT-IDs (`param.json` wird beim Entpacken richtig benannt)
   - Trophy-/Activity-UCPs mit veraltetem Digest werden repariert gepackt; Ordner, die nur OS-Müll enthalten, bleiben als leere Ordner im Paket
   - `.ffpfsc` mit rohem PFS-Image (MkPFS `--raw`, ps5-ffpfs-cli …) wird jetzt als Quelle akzeptiert statt mit „not a valid exFAT image“ abzubrechen
-  - Neue CLI-Bereiche ohne Auswirkung auf die WebUI: PS4-PKG (`ps4-*`, braucht Wine mit 32-Bit), ZSTD PS5 (`zstd-*`), Sony-SDK-Toolkit `sdk-fpkg279-fix15`, Oberflächen-Änderungen von 3.2.0
-- Geprüft: alle von der WebUI genutzten Befehle und Optionen sind unverändert vorhanden; Testbuild mit 2.2.6 und 3.2.0 liefert identische Log-Formate (Fortschrittsanzeige), denselben Paketnamen, gleiche `pkg-info`-Ausgabe, `verify` bestanden, `pkg-extract` gibt die Dateien bitgleich zurück
+  - Neue CLI-Bereiche, die die WebUI nicht nutzt: PS4-PKG (`ps4-*`), ZSTD PS5 (`zstd-*`), Oberflächen-Änderungen von 3.2.0
+- Geprüft: alle von der WebUI genutzten Befehle und Optionen sind unverändert vorhanden; Testbuild mit der eingebauten Engine unter 2.2.6 und 3.2.0 liefert identische Log-Formate (Fortschrittsanzeige), denselben Paketnamen, gleiche `pkg-info`-Ausgabe, `verify` bestanden, `pkg-extract` gibt die Dateien bitgleich zurück
 
 ## 1.4.1 – 2026-10-17
 - Weitere Fix-/Backport-Ordner (Einstellungen → Watch-Ordner, einer pro Zeile), Standard `/shares/NZB/ps5-backport/zip` (Zip-Ausgabe des PS5-Backport-Containers). Sie erscheinen zusammen mit dem Fix-Ordner in den Vorschlägen bei „FPKG bauen“ und „Backport → PS5“ und gelten für die automatische Fix-Zuordnung im Watch-Ordner. Nicht vorhandene Ordner werden ignoriert
