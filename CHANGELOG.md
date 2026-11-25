@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.2 – 2026-11-25
+- fpkg-cli 2.2.6 → 3.2.0 (Releases 2.2.7, 3.0.0, 3.1.0, 3.2.0, [Changelog](https://github.com/thanhsondev/PSVIETHOA-FPKG-Builder/blob/v3.2.0/CHANGELOG.md)). Für die WebUI (eingebaute Engine, `--no-sony-sdk`) relevant:
+  - Eingebaute Engine auf Drakmors fpkg-gui 0.6.12: eine PlayGo-Tabelle der Quelle mit nur einem Chunk bleibt erhalten (vorher durch 100 Fallback-Chunks ersetzt), korrigierte CNT-IDs (`param.json` wird beim Entpacken richtig benannt)
+  - Trophy-/Activity-UCPs mit veraltetem Digest werden repariert gepackt; Ordner, die nur OS-Müll enthalten, bleiben als leere Ordner im Paket
+  - `.ffpfsc` mit rohem PFS-Image (MkPFS `--raw`, ps5-ffpfs-cli …) wird jetzt als Quelle akzeptiert statt mit „not a valid exFAT image“ abzubrechen
+  - Neue CLI-Bereiche ohne Auswirkung auf die WebUI: PS4-PKG (`ps4-*`, braucht Wine mit 32-Bit), ZSTD PS5 (`zstd-*`), Sony-SDK-Toolkit `sdk-fpkg279-fix15`, Oberflächen-Änderungen von 3.2.0
+- Geprüft: alle von der WebUI genutzten Befehle und Optionen sind unverändert vorhanden; Testbuild mit 2.2.6 und 3.2.0 liefert identische Log-Formate (Fortschrittsanzeige), denselben Paketnamen, gleiche `pkg-info`-Ausgabe, `verify` bestanden, `pkg-extract` gibt die Dateien bitgleich zurück
+
 ## 1.4.1 – 2026-10-17
 - Weitere Fix-/Backport-Ordner (Einstellungen → Watch-Ordner, einer pro Zeile), Standard `/shares/NZB/ps5-backport/zip` (Zip-Ausgabe des PS5-Backport-Containers). Sie erscheinen zusammen mit dem Fix-Ordner in den Vorschlägen bei „FPKG bauen“ und „Backport → PS5“ und gelten für die automatische Fix-Zuordnung im Watch-Ordner. Nicht vorhandene Ordner werden ignoriert
 

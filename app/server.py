@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import backport as bp
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")

@@ -1,6 +1,6 @@
 # fpkg-webui – Handbuch
 
-Stand: Version 1.2.5 · fpkg-cli 2.2.6 · 7-Zip 25.01
+Stand: Version 1.4.2 · fpkg-cli 3.2.0 · 7-Zip 25.01
 
 Dieses Handbuch beschreibt jede Funktion der Oberfläche, was dabei im Hintergrund passiert und wie
 die Anwendung aufgebaut ist. Kurzfassung und Installation stehen im [README](../README.md).
@@ -551,18 +551,19 @@ Voraussetzungen: Python 3.11+, `fpkg-cli`, 7-Zip.
 Im `Dockerfile` **beide** Werte anpassen, sonst bricht der Build an `sha256sum -c` ab:
 
 ```dockerfile
-ARG FPKG_VERSION=2.2.6
+ARG FPKG_VERSION=3.2.0
 ARG FPKG_SHA256=<sha256 von PSVIETHOA-FPKG-Builder-<version>-Linux-x64.tar.gz>
 ```
 
 Den Hash aus dem Release berechnen:
 
 ```bash
-v=2.2.6; curl -fsSL "https://github.com/thanhsondev/PSVIETHOA-FPKG-Builder/releases/download/v$v/PSVIETHOA-FPKG-Builder-$v-Linux-x64.tar.gz" | sha256sum
+v=3.2.0; curl -fsSL "https://github.com/thanhsondev/PSVIETHOA-FPKG-Builder/releases/download/v$v/PSVIETHOA-FPKG-Builder-$v-Linux-x64.tar.gz" | sha256sum
 ```
 
 Release-Notes auf geändertes Standardverhalten prüfen (z. B. 2.2.6: PlayGo der Quelle bleibt jetzt
-erhalten).
+erhalten; 3.1.0: Sony-SDK-Modus auf das Toolkit `sdk-fpkg279-fix15` umgestellt – betrifft die WebUI
+nicht, sie baut mit `--no-sony-sdk`).
 
 ### Updates
 
