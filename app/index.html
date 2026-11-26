@@ -233,6 +233,10 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
         <div><label class="f" for="bp-tid">Title-ID</label><input id="bp-tid" type="text" placeholder="PPSA12345" maxlength="9"></div>
         <div><label class="f" for="bp-ver">Spielversion</label><input id="bp-ver" type="text" placeholder="z. B. 04.000.000"></div>
       </div>
+      <div class="hint" id="bp-tid-src"></div>
+      <label class="f" for="bp-game">Installiertes Spiel auf der PS5 <span style="font-weight:400;color:var(--muted)">(übernimmt die Title-ID)</span></label>
+      <div class="row"><select id="bp-game"><option value="">– Liste nicht geladen –</option></select><button id="bp-games-load" type="button" title="Spiele von der ShadowMountPlus-API laden">↻</button></div>
+      <div class="hint" id="bp-game-hint"></div>
       <div class="hint" id="bp-target"></div>
       <div class="bpinfo" id="bp-info"></div>
       <div class="opts">
@@ -801,12 +805,59 @@ $('#ex-start').onclick = async () => {
 };
 
 // ---------- backport -> PS5
-let BPS = {}, bpInfo = null, bpT = null;
+let BPS = {}, bpInfo = null, bpT = null, bpGames = null, bpGamesBusy = false;
+const TID_SRC = {name:'aus dem Dateinamen', folder:'aus dem Ordnernamen im Archiv', 'param.json':'aus sce_sys/param.json im Archiv', path:'aus einem Pfad im Archiv', game:'aus dem installierten Spiel'};
+function bpNorm(x){ return (x||'').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]/g,''); }
+// installed game whose title best matches the backport name; null if none or ambiguous
+function bpGuess(name){
+  if (!bpGames || !name) return null;
+  const n = bpNorm(name), stop = new Set(['the','and','edition','remastered','deluxe','ps5','game']);
+  let best = null, bestScore = 0, tie = false;
+  for (const g of bpGames){
+    const words = (g.title||'').toLowerCase().normalize('NFKD').split(/[^a-z0-9]+/).filter(w => w.length>=3 && !stop.has(w));
+    if (!words.length) continue;
+    const hit = words.filter(w => n.includes(w));
+    let score = hit.reduce((a,w)=>a+w.length,0);
+    if (hit.length < Math.min(2, words.length)) continue;
+    if (n.includes(bpNorm(g.title))) score += 10;
+    if (score > bestScore){ best = g; bestScore = score; tie = false; } else if (score === bestScore) tie = true;
+  }
+  return tie ? null : best;
+}
+function bpGameOpts(){
+  const sel = $('#bp-game'), cur = $('#bp-tid').value.trim().toUpperCase();
+  if (!bpGames){ return; }
+  sel.innerHTML = '<option value="">– Spiel wählen –</option>' + bpGames.map(g => `<option value="${esc(g.title_id)}">${esc(g.title||'(ohne Namen)')} · ${esc(g.title_id)}${g.version?' · v'+esc(g.version):''} · ${g.source==='pkg'?'PKG':esc(g.source)}${g.backport?' · Backport vorhanden':''}</option>`).join('');
+  sel.value = bpGames.some(g=>g.title_id===cur) ? cur : '';
+  bpGameHint();
+}
+function bpGameHint(){
+  const h = $('#bp-game-hint'), t = $('#bp-tid').value.trim().toUpperCase();
+  if (!bpGames || !t){ h.className='hint'; h.textContent=''; return; }
+  const g = bpGames.find(x=>x.title_id===t);
+  if (!g){ h.className='hint warn'; h.textContent=`${t} ist auf der PS5 nicht unter den Spielen von ShadowMountPlus – Title-ID prüfen (kopiert wird trotzdem, wenn „Prüfen, ob installiert“ aus ist)`; return; }
+  h.className='hint ok'; h.textContent=`installiert: ${g.title||t}${g.version?' · Version '+g.version:''}${g.backport?' · vorhandenes Backport: '+g.backport+' (wird vorher gesichert)':''}`;
+}
+async function bpLoadGames(quiet){
+  if (bpGamesBusy || !BPS.ps5_host) return;
+  bpGamesBusy = true; const h=$('#bp-game-hint'); if(!quiet){ h.className='hint'; h.textContent='lade Spiele …'; }
+  try{ bpGames = (await api('/api/ps5/games')).games; bpGameOpts(); if(!$('#bp-tid').value.trim()) bpApplyGuess(); }
+  catch(e){ bpGames=null; $('#bp-game').innerHTML='<option value="">– Liste nicht verfügbar –</option>'; h.className='hint warn'; h.textContent=e.message; }
+  finally{ bpGamesBusy=false; }
+}
+function bpApplyGuess(){
+  const g = bpGuess(bpInfo ? bpInfo.name : $('#bp-src').value.split('/').pop());
+  if (!g) return;
+  $('#bp-tid').value = g.title_id; $('#bp-game').value = g.title_id;
+  $('#bp-tid-src').className='hint warn'; $('#bp-tid-src').textContent=`Title-ID geraten über den Spielnamen „${g.title}“ – bitte prüfen`;
+  bpTarget(); bpGameHint();
+}
+function bpTidSrc(src){ const h=$('#bp-tid-src'); if(!src){ h.className='hint'; h.textContent=''; return; } h.className='hint ok'; h.textContent='Title-ID '+(TID_SRC[src]||src); }
 function showMode(m){ document.querySelectorAll('#mode-tabs button').forEach(b=>b.classList.toggle('on', b.dataset.mode===m)); ['fpkg','ex','bp'].forEach(x=>$('#mode-'+x).style.display=m===x?'':'none'); if(m==='ex') exTarget(); try{ localStorage.setItem('fpkg-mode', m); }catch(e){} if(m==='bp'){ bpSettings(); bpList(); } }
 document.querySelectorAll('#mode-tabs button').forEach(b => b.onclick = () => showMode(b.dataset.mode));
 function bpSave(){ try{ localStorage.setItem('fpkg-bp', JSON.stringify({src:$('#bp-src').value, ci:$('#bp-ci').checked, cv:$('#bp-cv').checked})); }catch(e){} }
 function bpLoad(){ try{ const o=JSON.parse(localStorage.getItem('fpkg-bp')||'{}'); if(o.src) $('#bp-src').value=o.src; $('#bp-ci').checked=!!o.ci; $('#bp-cv').checked=!!o.cv; }catch(e){} }
-async function bpSettings(){ try{ BPS = await api('/api/settings'); }catch(e){ return; } $('#bp-apiport').textContent=BPS.ps5_api_port; $('#bp-bakdir').textContent=BPS.ps5_backup_dir; bpTarget(); }
+async function bpSettings(){ try{ BPS = await api('/api/settings'); }catch(e){ return; } $('#bp-apiport').textContent=BPS.ps5_api_port; $('#bp-bakdir').textContent=BPS.ps5_backup_dir; bpTarget(); if(!bpGames) bpLoadGames(true); }
 function bpTarget(){ const t=$('#bp-tid').value.trim().toUpperCase()||'<TITLE_ID>', h=$('#bp-target');
   if (!BPS.ps5_host){ h.className='hint warn'; h.textContent='PS5-Adresse fehlt – unter Einstellungen → PS5 / ShadowMountPlus eintragen'; return; }
   h.className='hint'; h.textContent=`Ziel: ${BPS.ps5_host} · FTP ${BPS.ps5_ftp_port} · ${BPS.ps5_backport_dir}/${t}`; }
@@ -834,16 +885,22 @@ async function bpProbe(){
     if (r.encrypted) $('#bp-pw-wrap').style.display='';
     if (!r.listed){ h.className='hint warn'; h.textContent='passwortgeschützt (auch die Dateinamen) – Passwort eintragen'; return; }
     h.className='hint ok'; h.textContent = (r.kind==='folder'?'Ordner':'Archiv') + (r.size?' · '+human(r.size):'') + (r.encrypted?' · 🔒':'') + (r.title_id?' · '+r.title_id:' · Title-ID nicht erkannt');
-    $('#bp-tid').value = r.title_id || ''; $('#bp-ver').value = r.version || '';
+    $('#bp-tid').value = r.title_id || ''; $('#bp-ver').value = r.version || ''; bpTidSrc(r.tid_source);
     const sel=$('#bp-variant'); sel.innerHTML = r.variants.map(x=>`<option value="${esc(x.root)}">${esc(x.root||'(oberste Ebene)')} · ${x.files} Dateien</option>`).join('');
     $('#bp-var-wrap').style.display = r.variants.length>1 ? '' : 'none';
     bpRenderVariant(); bpTarget();
+    if (bpGames){ bpGameOpts(); if (!r.title_id) bpApplyGuess(); }
+    if (!$('#bp-tid').value.trim() && !bpGames){ const t=$('#bp-tid-src'); t.className='hint warn'; t.textContent='Title-ID nicht gefunden – eintragen oder unten das installierte Spiel wählen'; }
   }catch(e){ h.className='hint err'; h.textContent=e.message; }
 }
 $('#bp-src').addEventListener('input', ()=>{ bpSave(); clearTimeout(bpT); bpT=setTimeout(bpProbe, 500); });
 $('#bp-pw').addEventListener('change', bpProbe);
-$('#bp-variant').addEventListener('change', bpRenderVariant);
-$('#bp-tid').addEventListener('input', bpTarget);
+$('#bp-variant').addEventListener('change', ()=>{ bpRenderVariant();
+  const v = bpInfo && bpInfo.variants.find(x=>x.root===$('#bp-variant').value);
+  if (v && v.title_id){ $('#bp-tid').value=v.title_id; bpTidSrc(v.tid_source); bpTarget(); if(bpGames){ $('#bp-game').value=bpGames.some(g=>g.title_id===v.title_id)?v.title_id:''; bpGameHint(); } } });
+$('#bp-tid').addEventListener('input', ()=>{ bpTarget(); bpTidSrc(null); if(bpGames){ const t=$('#bp-tid').value.trim().toUpperCase(); $('#bp-game').value=bpGames.some(g=>g.title_id===t)?t:''; } bpGameHint(); });
+$('#bp-game').addEventListener('change', ()=>{ const t=$('#bp-game').value; if(!t) return; $('#bp-tid').value=t; bpTidSrc('game'); bpTarget(); bpGameHint(); });
+$('#bp-games-load').onclick = ()=>bpLoadGames(false);
 $('#bp-cv').addEventListener('change', ()=>{ if($('#bp-cv').checked) $('#bp-ci').checked=true; bpSave(); });
 $('#bp-ci').addEventListener('change', ()=>{ if(!$('#bp-ci').checked) $('#bp-cv').checked=false; bpSave(); });
 $('#bp-start').onclick = async () => {

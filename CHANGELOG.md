@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1 – 2026-11-26
+- Backport → PS5: Die Title-ID wird beim Auswählen im Archiv gesucht – Ordnername der Backport-Wurzel (je Variante, wechselt beim Umschalten der Variante mit) und `sce_sys/param.json` (auch in passwortgeschützten Archiven); unter dem Feld steht, woher sie stammt
+- Neue Auswahl „Installiertes Spiel auf der PS5“: Spieleliste über die ShadowMountPlus-API (Name, Title-ID, Version, PKG/Ordner/Image, vorhandenes Backport); Auswahl übernimmt die Title-ID. Ohne Title-ID im Archiv schlägt das Formular das Spiel vor, dessen Name zum Archivnamen passt (als „geraten – bitte prüfen“ markiert), und warnt bei einer Title-ID, die auf der PS5 nicht vorkommt
+- Neuer Endpunkt `GET /api/ps5/games`
+
 ## 1.5.0 – 2026-11-25
 - **Build mit dem Sony SDK als Standard** (Drakmors Toolkit `sdk-fpkg279-fix15`, das fpkg-cli seit 3.1.0 im Sony-SDK-Modus nutzt und Drakmor für gültige Pakete empfiehlt): SDK-Version bleibt im Paket, PlayGo-Layout der Quelle bleibt, UDS-UCPs werden repariert/neu erzeugt, Unreal-Laufzeit-Configs fallen weg. Das Image enthält dafür Wine (64- und 32-Bit) und Xvfb
   - Neue Option *Erweitert → Build-Methode*: „Sony SDK (fix15)“ (Standard) oder „Eingebaute Engine“; ebenso in den Watch-Einstellungen

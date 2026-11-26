@@ -486,6 +486,33 @@ def test_build_method():
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_backport_title_sources():
+    d = tempfile.mkdtemp()
+    try:
+        roots = server.roots
+        server.roots = lambda: [d]
+        two = os.path.join(d, "two")
+        for tid in ("PPSA11111", "PPSA22222"):
+            os.makedirs(os.path.join(two, "pack", tid, "sce_module"))
+            touch(os.path.join(two, "pack", tid), "eboot.bin")
+        r = server.backport_probe(two)
+        check("bp tid: Ordnername im Archiv", r["title_id"] == "PPSA11111" and r["tid_source"] == "folder")
+        check("bp tid: je Variante", sorted(v["title_id"] for v in r["variants"]) == ["PPSA11111", "PPSA22222"])
+        pj = os.path.join(d, "Some Game Backport")
+        os.makedirs(os.path.join(pj, "sce_sys"))
+        os.makedirs(os.path.join(pj, "fakelib"))
+        touch(pj, "eboot.bin")
+        with open(os.path.join(pj, "sce_sys", "param.json"), "w") as f:
+            f.write('{"titleId": "PPSA33333"}')
+        r = server.backport_probe(pj)
+        check("bp tid: sce_sys/param.json", r["title_id"] == "PPSA33333" and r["tid_source"] == "param.json")
+        check("param.json ohne titleId", server.bp.title_from_param_json('{"x": 1}') is None)
+        check("param.json kaputt", server.bp.title_from_param_json(b"\xff{") is None)
+    finally:
+        server.roots = roots
+        shutil.rmtree(d, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_volumes()
     test_old_rar_naming()
@@ -497,6 +524,7 @@ if __name__ == "__main__":
     test_backport()
     test_pkg_names()
     test_build_method()
+    test_backport_title_sources()
     test_exfat()
     print(f"\n{len(FAILS)} Fehler" if FAILS else "\nalle Tests ok")
     sys.exit(1 if FAILS else 0)

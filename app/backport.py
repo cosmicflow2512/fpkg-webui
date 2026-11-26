@@ -152,15 +152,30 @@ def smp_call(host, port, route, body=None, timeout=8):
             return e.code, {"error": f"HTTP {e.code}"}
 
 
-def smp_game(host, port, title_id):
-    """-> game dict from /api/v1/games (includes installed PKGs) or None."""
-    code, data = smp_call(host, port, "/api/v1/games", {"include_size": False}, timeout=20)
+def smp_games(host, port, timeout=20):
+    """-> all games from /api/v1/games (folder/image sources and installed PKGs)."""
+    code, data = smp_call(host, port, "/api/v1/games", {"include_size": False}, timeout=timeout)
     if code != 200:
         raise OSError(f"ShadowMountPlus-API /api/v1/games: HTTP {code} {data.get('error', '')}".strip())
-    for g in data.get("games") or []:
+    return data.get("games") or []
+
+
+def smp_game(host, port, title_id):
+    """-> game dict from /api/v1/games (includes installed PKGs) or None."""
+    for g in smp_games(host, port):
         if (g.get("title_id") or "").upper() == title_id.upper():
             return g
     return None
+
+
+def title_from_param_json(raw):
+    """titleId from sce_sys/param.json content (bytes/str) or None."""
+    try:
+        d = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8", "replace"))
+    except ValueError:
+        return None
+    m = RX_TITLE.fullmatch(str(d.get("titleId") or "").strip()) if isinstance(d, dict) else None
+    return m.group(0).upper() if m else None
 
 
 # ---------------------------------------------------------------- FTP

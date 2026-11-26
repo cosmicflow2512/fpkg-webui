@@ -1,6 +1,6 @@
 # fpkg-webui – Handbuch
 
-Stand: Version 1.5.0 · fpkg-cli 3.2.0 · 7-Zip 25.01
+Stand: Version 1.5.1 · fpkg-cli 3.2.0 · 7-Zip 25.01
 
 Dieses Handbuch beschreibt jede Funktion der Oberfläche, was dabei im Hintergrund passiert und wie
 die Anwendung aufgebaut ist. Kurzfassung und Installation stehen im [README](../README.md).
@@ -219,6 +219,23 @@ Statt den Backport ins Paket zu bauen, kann er direkt auf die PS5 kopiert werden
 „Backport → PS5“ oben im Formular). ShadowMountPlus legt `<Scanpfad>/backports/<TITLE_ID>/` und als
 Fallback `/data/homebrew/backports/<TITLE_ID>/` beim Spielstart über das Spiel; für installierte PKGs
 über NSFS-Redirects ab 1.7beta2 (Quelle: [ShadowMountPlus README, „Backport overlay behavior“](https://github.com/drakmor/ShadowMountPlus)).
+
+**Title-ID im Formular.** Beim Auswählen schaut die WebUI ins Archiv (ohne es zu entpacken) und füllt
+die Title-ID in dieser Reihenfolge; darunter steht, woher sie stammt:
+
+1. aus dem Dateinamen (`…PPSA12345…`),
+2. aus dem Ordnernamen der Backport-Wurzel im Archiv (`Backport/PPSA12345/eboot.bin`) – bei mehreren
+   Varianten je Variante, beim Umschalten der Variante wechselt die Title-ID mit,
+3. aus `sce_sys/param.json` (`titleId`) im Archiv, auch bei passwortgeschützten Archiven,
+4. aus irgendeinem anderen Pfad im Archiv,
+5. sonst ein **Vorschlag** aus den installierten Spielen: Die Auswahl „Installiertes Spiel auf der PS5“
+   lädt die Spieleliste über die ShadowMountPlus-API (`/api/v1/games`, Name, Title-ID, Version, Quelle,
+   vorhandenes Backport) und vergleicht die Spielnamen mit dem Archivnamen. Ein Treffer wird als
+   „geraten – bitte prüfen“ markiert; passen mehrere Spiele gleich gut, wird nichts vorausgewählt.
+
+Ein Spiel aus der Liste zu wählen übernimmt seine Title-ID. Steht eine Title-ID im Feld, die
+ShadowMountPlus nicht kennt, warnt das Formular. Ohne PS5-Adresse oder erreichbare API bleibt die Liste
+leer; Name, Archiv und `param.json` funktionieren trotzdem.
 
 Ablauf eines Auftrags:
 
@@ -551,7 +568,8 @@ Alle Antworten JSON, Fehler als `{"error": "…"}` mit HTTP 4xx/5xx.
 | POST | `/api/watch/forget` | Eintrag erneut verarbeiten (`key`) |
 | POST | `/api/extract` | Nur entpacken (`source`, `dest`, `name`, `checksum`, `delete_archive`, `password`) |
 | POST | `/api/jobs/<id>/name` | Paketname vor dem Bauen ändern (`name`, leer = automatisch) |
-| POST | `/api/backport/probe` | Backport erkennen (`path`, `password`): Title-ID, Version, FW, Varianten mit Dateien |
+| POST | `/api/backport/probe` | Backport erkennen (`path`, `password`): Title-ID (+ `tid_source`: name / folder / param.json / path), Version, FW, Varianten mit Dateien und eigener Title-ID |
+| GET | `/api/ps5/games` | Spiele von der ShadowMountPlus-API: `title_id`, `title`, `version`, `platform`, `source`, `backport` |
 | GET | `/api/backport/list` | Einträge im Fix-Ordner als Backport-Vorschläge |
 | POST | `/api/backport` | Backport-Auftrag (`source`, `title_id`, `version`, `variant`, `check_installed`, `check_version`, `password`) |
 | POST | `/api/ps5/test` | FTP- und ShadowMountPlus-API-Verbindung testen |

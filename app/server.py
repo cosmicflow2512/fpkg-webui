@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import backport as bp
 from exfat import ExfatError, ExfatImage
 
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.5.1"
 ENV = os.environ.get
 PORT = int(ENV("PORT", "8095"))
 DATA = ENV("DATA_DIR", "/config")
@@ -2537,17 +2537,71 @@ def backport_probe(path, password=""):
         sizes = dict(ent)
     else:
         raise JobError("Backport als Archiv (zip/rar/7z) oder Ordner wählen")
-    if not info["title_id"]:
-        m = next((bp.RX_TITLE.search(f) for f in files if bp.RX_TITLE.search(f)), None)
-        info["title_id"] = m.group(0).upper() if m else None
+    # title ID per variant: folder name inside the archive (e.g. PPSA12345/eboot.bin), else sce_sys/param.json
+    info["tid_source"] = "name" if info["title_id"] else None
     info["variants"] = []
     for r in bp.find_roots(files):
         rel = bp.files_under(files, r)
         pre = r + "/" if r else ""
+        tid, src = None, None
+        m = bp.RX_TITLE.search(r)
+        if m:
+            tid, src = m.group(0).upper(), "folder"
+        elif "sce_sys/param.json" in rel:
+            tid = read_param_title(rp, info["kind"], pre + "sce_sys/param.json", password)
+            src = "param.json" if tid else None
         info["variants"].append({"root": r, "files": len(rel), "size": sum(sizes.get(pre + f, 0) for f in rel),
                                  "fw": bp.name_info(r)["fw"], "notes": bp.check_files(rel),
-                                 "sample": rel[:12]})
+                                 "sample": rel[:12], "title_id": tid, "tid_source": src})
+    if not info["title_id"]:
+        v = next((v for v in info["variants"] if v["title_id"]), None)
+        if v:
+            info["title_id"], info["tid_source"] = v["title_id"], v["tid_source"]
+        else:
+            m = next((bp.RX_TITLE.search(f) for f in files if bp.RX_TITLE.search(f)), None)
+            if m:
+                info["title_id"], info["tid_source"] = m.group(0).upper(), "path"
     return info
+
+
+def read_param_title(src, kind, member, password=""):
+    """titleId from a param.json inside a backport folder or archive (small file, read with 7z e -so)."""
+    if kind == "folder":
+        try:
+            with open(os.path.join(src, member), "rb") as f:
+                return bp.title_from_param_json(f.read(1 << 20))
+        except OSError:
+            return None
+    arc = first_volume(archive_volumes(src))
+    for pw in [None] + password_candidates(password):
+        cmd = [SEVENZ, "e", "-so", "-p" + (pw or ""), arc, member]
+        try:
+            r = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                               timeout=120)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        tid = bp.title_from_param_json(r.stdout[:1 << 20]) if r.returncode == 0 else None
+        if tid:
+            return tid
+    return None
+
+
+def ps5_games():
+    """Installed/managed games from the ShadowMountPlus API, trimmed for the backport form."""
+    host = SETTINGS["ps5_host"]
+    if not host:
+        raise JobError("PS5-Adresse fehlt – Einstellungen → PS5 / ShadowMountPlus")
+    try:
+        games = bp.smp_games(host, SETTINGS["ps5_api_port"], timeout=15)
+    except OSError as e:
+        raise JobError(f"ShadowMountPlus-API nicht erreichbar ({e}) – läuft ShadowMountPlus, ist die API im LAN "
+                       "freigegeben ([api] bind_address = 0.0.0.0)?")
+    out = [{"title_id": (g.get("title_id") or "").upper(), "title": g.get("title_name") or "",
+            "version": g.get("version") or "", "platform": g.get("platform") or "",
+            "source": g.get("source_type") or "", "backport": g.get("backport_path") or ""}
+           for g in games if g.get("title_id")]
+    out.sort(key=lambda g: (g["platform"] != "ps5", g["title"].lower() or g["title_id"]))
+    return out
 
 
 def ps5_test():
@@ -2649,6 +2703,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, list_dir(q.get("path", "")))
             if u.path == "/api/probe":
                 return self.send(200, probe(q.get("path", ""), fixes=q.get("fixes") == "1"))
+            if u.path == "/api/ps5/games":
+                return self.send(200, {"games": ps5_games()})
             if u.path == "/api/backport/list":
                 fixdir = SETTINGS.get("watch_fix_dir")
                 try:
